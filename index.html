@@ -1,0 +1,2575 @@
+<!doctype html>
+<html lang="en" dir="ltr" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LLM Pulse — LiteLLM Endpoint Inspector</title>
+    <meta name="description" content="Interactive bilingual LiteLLM config YAML parser, concurrent endpoint connectivity tester, latency history sparklines, and flexible JSON/CSV/YAML exporter." />
+    <meta property="og:title" content="LLM Pulse — LiteLLM Endpoint Inspector" />
+    <meta property="og:description" content="Interactive bilingual LiteLLM config YAML parser, concurrent endpoint connectivity tester, latency history sparklines, and flexible JSON/CSV/YAML exporter." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!-- PWA Manifest & Meta Tags -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="LLMPulse" />
+
+    <!-- Google Fonts: Inter (EN), Cairo (AR), JetBrains Mono (Code/Metrics) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'Cairo', 'system-ui', 'sans-serif'],
+              arabic: ['Cairo', 'Inter', 'system-ui', 'sans-serif'],
+              mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+            },
+          },
+        },
+      };
+    </script>
+
+    <!-- js-yaml via CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+
+    <!-- Lucide Icons via CDN -->
+    <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+
+    <!-- React, ReactDOM & Recharts via CDN for Latency Bar Chart -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.min.js"></script>
+
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      html[lang="ar"] body {
+        font-family: 'Cairo', 'Inter', system-ui, sans-serif;
+      }
+      html[lang="en"] body {
+        font-family: 'Inter', 'Cairo', system-ui, sans-serif;
+      }
+      .tabular-nums {
+        font-variant-numeric: tabular-nums;
+      }
+      /* Subtle custom scrollbar */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #020617;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #1e293b;
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #334155;
+      }
+      @keyframes spin-slow {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .animate-spin-fast {
+        animation: spin-slow 0.8s linear infinite;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .animate-spin-fast {
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100 antialiased selection:bg-indigo-500/30 selection:text-indigo-200">
+    <!-- Subtle ambient top gradient -->
+    <div class="pointer-events-none fixed inset-x-0 top-0 h-80 bg-gradient-to-b from-indigo-950/25 via-slate-950/0 to-transparent"></div>
+
+    <!-- Top Navigation Bar -->
+    <header class="sticky top-0 z-30 border-b border-slate-800/80 bg-slate-950/85 backdrop-blur-md">
+      <div class="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-4 py-3.5 sm:px-6 lg:px-8">
+        <!-- Zone 1: Brand Wordmark -->
+        <div class="flex items-center gap-3 min-w-0">
+          <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-indigo-500/30 bg-indigo-500/15 text-indigo-400">
+            <i data-lucide="activity" class="h-5 w-5"></i>
+          </div>
+          <h1 id="brandTitle" class="truncate text-base font-semibold tracking-tight text-slate-50 sm:text-lg whitespace-nowrap">
+            LLM Pulse
+          </h1>
+        </div>
+
+        <!-- Zone 2: Actions (PWA Install + Language Toggle + Reset) -->
+        <div class="flex items-center gap-2.5 shrink-0">
+          <button
+            id="pwaInstallBtn"
+            type="button"
+            style="display: none;"
+            class="inline-flex items-center gap-2 rounded-lg border border-blue-500/40 bg-blue-500/15 px-3.5 py-2 text-xs font-medium text-blue-200 transition-colors hover:bg-blue-500/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 whitespace-nowrap shrink-0"
+          >
+            <i data-lucide="download-cloud" class="h-4 w-4"></i>
+            <span data-i18n="installApp">Install App</span>
+          </button>
+
+          <button
+            id="langToggleBtn"
+            type="button"
+            class="inline-flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/90 px-3.5 py-2 text-xs font-medium text-slate-200 transition-colors hover:border-slate-700 hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 whitespace-nowrap shrink-0"
+          >
+            <i data-lucide="languages" class="h-4 w-4 text-indigo-400"></i>
+            <span id="langToggleLabel">العربية</span>
+          </button>
+
+          <button
+            id="resetBtn"
+            type="button"
+            class="inline-flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/90 px-3.5 py-2 text-xs font-medium text-slate-300 transition-colors hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 whitespace-nowrap shrink-0"
+          >
+            <i data-lucide="rotate-ccw" class="h-4 w-4"></i>
+            <span data-i18n="resetBtn">Reset</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="relative z-10 mx-auto max-w-[1440px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+      <!-- Intro & Quick Action Strip -->
+      <section class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div class="max-w-3xl space-y-1.5">
+          <h2 class="text-xl font-semibold tracking-tight text-slate-50 sm:text-2xl" style="text-wrap: balance;" data-i18n="heroTitle">
+            Validate &amp; Benchmark LiteLLM Routing Endpoints
+          </h2>
+          <p class="text-sm leading-relaxed text-slate-400" data-i18n="heroSubtitle">
+            Parse your litellm_config.yaml locally in the browser, run concurrent health checks across providers, analyze latency comparisons, and export results.
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2.5 shrink-0">
+          <button
+            id="toggleInputPanelBtn"
+            type="button"
+            class="inline-flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/80 px-3.5 py-2 text-xs font-medium text-slate-300 transition-colors hover:border-slate-700 hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 whitespace-nowrap shrink-0"
+          >
+            <i data-lucide="file-code-2" class="h-4 w-4 text-violet-400"></i>
+            <span id="toggleInputPanelText" data-i18n="hideYamlInput">Hide YAML Input</span>
+          </button>
+          <button
+            id="exportWorkingBtn"
+            type="button"
+            disabled
+            class="inline-flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/15 px-3.5 py-2 text-xs font-semibold text-emerald-300 transition-colors hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 whitespace-nowrap shrink-0"
+          >
+            <i data-lucide="download" class="h-4 w-4"></i>
+            <span data-i18n="exportWorking">Export Working (YAML)</span>
+          </button>
+          <button
+            id="openCsvModalBtn"
+            type="button"
+            disabled
+            class="inline-flex items-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/15 px-3.5 py-2 text-xs font-semibold text-indigo-300 transition-colors hover:bg-indigo-500/25 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 whitespace-nowrap shrink-0"
+          >
+            <i data-lucide="file-spreadsheet" class="h-4 w-4"></i>
+            <span data-i18n="exportCsv">Export CSV</span>
+          </button>
+          <button
+            id="exportJsonBtn"
+            type="button"
+            disabled
+            class="inline-flex items-center gap-2 rounded-lg border border-violet-500/30 bg-violet-500/15 px-3.5 py-2 text-xs font-semibold text-violet-300 transition-colors hover:bg-violet-500/25 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 whitespace-nowrap shrink-0"
+          >
+            <i data-lucide="file-json" class="h-4 w-4"></i>
+            <span data-i18n="exportJson">Export JSON</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Section 1: YAML Input & Parsing Panel -->
+      <section id="yamlInputSection" class="rounded-xl border border-slate-800/90 bg-slate-900/65 p-5 backdrop-blur-md">
+        <div class="grid grid-cols-1 gap-5 lg:grid-cols-12 items-stretch">
+          <!-- Left: Drag & Drop File Zone -->
+          <div class="lg:col-span-4 flex flex-col">
+            <label class="mb-2 block text-xs font-medium text-slate-300" data-i18n="uploadZoneLabel">
+              Config File Upload (.yaml, .yml, .txt)
+            </label>
+            <div
+              id="dropZone"
+              tabindex="0"
+              role="button"
+              class="group relative flex flex-1 min-h-[190px] cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-slate-700 bg-slate-950/60 p-5 text-center transition-colors hover:border-indigo-500/60 hover:bg-indigo-950/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            >
+              <input
+                id="fileInput"
+                type="file"
+                accept=".yaml,.yml,.txt,text/yaml,text/plain"
+                class="hidden"
+              />
+              <div class="mb-3 flex h-11 w-11 items-center justify-center rounded-lg border border-slate-800 bg-slate-900 text-indigo-400 transition-transform group-hover:scale-105">
+                <i data-lucide="upload-cloud" class="h-5 w-5"></i>
+              </div>
+              <p class="text-sm font-medium text-slate-200" data-i18n="dropTitle">
+                Drop litellm_config.yaml here
+              </p>
+              <p class="mt-1 text-xs text-slate-400" data-i18n="dropSubtitle">
+                or click to browse local files
+              </p>
+              <div id="uploadedFileMeta" class="mt-3 hidden items-center gap-2 text-xs font-mono text-emerald-400">
+                <i data-lucide="file-check-2" class="h-3.5 w-3.5"></i>
+                <span id="uploadedFileName" class="truncate max-w-[220px]"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: Raw YAML Paste Textarea & Actions -->
+          <div class="lg:col-span-8 flex flex-col">
+            <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <label for="yamlTextarea" class="text-xs font-medium text-slate-300" data-i18n="pasteLabel">
+                Or Paste Raw YAML Configuration
+              </label>
+              <div class="flex flex-wrap items-center gap-2">
+                <button
+                  id="loadSampleBtn"
+                  type="button"
+                  class="inline-flex items-center gap-1.5 rounded-md border border-slate-700/80 bg-slate-800/80 px-2.5 py-1.5 text-xs font-medium text-slate-200 transition-colors hover:border-indigo-500/50 hover:bg-indigo-500/15 hover:text-indigo-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 whitespace-nowrap shrink-0"
+                >
+                  <i data-lucide="sparkles" class="h-3.5 w-3.5 text-indigo-400"></i>
+                  <span data-i18n="loadSample">Load Sample Config</span>
+                </button>
+                <button
+                  id="parseYamlBtn"
+                  type="button"
+                  class="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 whitespace-nowrap shrink-0"
+                >
+                  <i data-lucide="braces" class="h-3.5 w-3.5"></i>
+                  <span data-i18n="parseYaml">Parse YAML</span>
+                </button>
+              </div>
+            </div>
+            <textarea
+              id="yamlTextarea"
+              spellcheck="false"
+              dir="ltr"
+              class="flex-1 min-h-[190px] w-full resize-y rounded-lg border border-slate-800 bg-slate-950/90 p-3.5 font-mono text-xs leading-relaxed text-slate-200 placeholder-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              placeholder="model_list:&#10;  - model_name: gpt-4o&#10;    litellm_params:&#10;      model: openai/gpt-4o&#10;      api_base: https://api.openai.com/v1&#10;      api_key: sk-..."
+            ></textarea>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 2: Live Summary Cards (5 Cards including Fastest Provider) -->
+      <section class="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+        <div class="rounded-xl border border-slate-800/90 bg-slate-900/65 p-4 backdrop-blur-md">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-400" data-i18n="statTotal">Total Endpoints</span>
+            <i data-lucide="layers" class="h-4 w-4 text-slate-400"></i>
+          </div>
+          <div id="statTotalValue" class="mt-2 font-mono text-2xl font-semibold text-slate-50 tabular-nums">0</div>
+        </div>
+
+        <div class="rounded-xl border border-slate-800/90 bg-slate-900/65 p-4 backdrop-blur-md">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-400" data-i18n="statWorking">Working (Success)</span>
+            <i data-lucide="check-circle-2" class="h-4 w-4 text-emerald-400"></i>
+          </div>
+          <div id="statWorkingValue" class="mt-2 font-mono text-2xl font-semibold text-emerald-400 tabular-nums">0</div>
+        </div>
+
+        <div class="rounded-xl border border-slate-800/90 bg-slate-900/65 p-4 backdrop-blur-md">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-400" data-i18n="statFailed">Failed / Offline</span>
+            <i data-lucide="x-circle" class="h-4 w-4 text-rose-400"></i>
+          </div>
+          <div id="statFailedValue" class="mt-2 font-mono text-2xl font-semibold text-rose-400 tabular-nums">0</div>
+        </div>
+
+        <div class="rounded-xl border border-slate-800/90 bg-slate-900/65 p-4 backdrop-blur-md">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-400" data-i18n="statPending">Pending / Testing</span>
+            <i data-lucide="clock" class="h-4 w-4 text-amber-400"></i>
+          </div>
+          <div id="statPendingValue" class="mt-2 font-mono text-2xl font-semibold text-amber-300 tabular-nums">0</div>
+        </div>
+
+        <div class="rounded-xl border border-emerald-500/30 bg-slate-900/65 p-4 backdrop-blur-md col-span-2 md:col-span-1">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-emerald-400" data-i18n="statFastest">Fastest Provider</span>
+            <i data-lucide="zap" class="h-4 w-4 text-emerald-400"></i>
+          </div>
+          <div id="statFastestValue" class="mt-2 font-mono text-lg font-semibold text-emerald-300 truncate tabular-nums">—</div>
+        </div>
+      </section>
+
+      <!-- Section 2.5: Recharts Latency Bar Chart for Successful Endpoints -->
+      <section class="rounded-xl border border-slate-800/90 bg-slate-900/65 p-4 sm:p-5 backdrop-blur-md">
+        <div class="mb-3 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <i data-lucide="bar-chart-3" class="h-4 w-4 text-emerald-400"></i>
+            <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-300" data-i18n="chartTitle">
+              Successful Endpoints Latency Comparison (ms)
+            </h3>
+          </div>
+          <span id="chartCountBadge" class="rounded-md border border-slate-800 bg-slate-950 px-2.5 py-1 font-mono text-[11px] text-slate-400">
+            0 endpoints
+          </span>
+        </div>
+        <div id="latencyChartContainer" class="h-64 w-full">
+          <!-- Recharts mounted dynamically via React UMD -->
+        </div>
+      </section>
+
+      <!-- Section 3: Testing Controls, Progress & Advanced Settings -->
+      <section class="rounded-xl border border-slate-800/90 bg-slate-900/65 p-4 sm:p-5 backdrop-blur-md space-y-4">
+        <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <!-- Execution Buttons -->
+          <div class="flex flex-wrap items-center gap-2.5">
+            <button
+              id="testAllBtn"
+              type="button"
+              disabled
+              class="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 whitespace-nowrap shrink-0"
+            >
+              <i data-lucide="play" class="h-4 w-4"></i>
+              <span data-i18n="testAll">Test All</span>
+            </button>
+
+            <button
+              id="testSelectedBtn"
+              type="button"
+              disabled
+              class="inline-flex items-center gap-2 rounded-lg border border-indigo-500/40 bg-indigo-500/15 px-4 py-2 text-xs font-semibold text-indigo-200 transition-colors hover:bg-indigo-500/25 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 whitespace-nowrap shrink-0"
+            >
+              <i data-lucide="check-square" class="h-4 w-4"></i>
+              <span id="testSelectedLabel">Test Selected (0)</span>
+            </button>
+
+            <button
+              id="stopTestingBtn"
+              type="button"
+              disabled
+              class="inline-flex items-center gap-2 rounded-lg border border-rose-500/40 bg-rose-500/15 px-4 py-2 text-xs font-semibold text-rose-200 transition-colors hover:bg-rose-500/25 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 whitespace-nowrap shrink-0"
+            >
+              <i data-lucide="square" class="h-4 w-4"></i>
+              <span data-i18n="stopTesting">Stop Testing</span>
+            </button>
+          </div>
+
+          <!-- Concurrency, Timeout & Advanced Toggle -->
+          <div class="flex flex-wrap items-center gap-3">
+            <div class="flex items-center gap-2">
+              <label for="concurrencySelect" class="text-xs font-medium text-slate-400 whitespace-nowrap" data-i18n="concurrencyLabel">
+                Concurrency
+              </label>
+              <select
+                id="concurrencySelect"
+                class="rounded-lg border border-slate-800 bg-slate-950 px-3 py-1.5 font-mono text-xs text-slate-200 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              >
+                <option value="1">1</option>
+                <option value="3">3</option>
+                <option value="5" selected>5</option>
+                <option value="10">10</option>
+              </select>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <label for="timeoutSelect" class="text-xs font-medium text-slate-400 whitespace-nowrap" data-i18n="timeoutLabel">
+                Timeout
+              </label>
+              <select
+                id="timeoutSelect"
+                class="rounded-lg border border-slate-800 bg-slate-950 px-3 py-1.5 font-mono text-xs text-slate-200 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              >
+                <option value="5000">5s</option>
+                <option value="10000" selected>10s</option>
+                <option value="20000">20s</option>
+                <option value="30000">30s</option>
+              </select>
+            </div>
+
+            <button
+              id="advancedToggleBtn"
+              type="button"
+              class="inline-flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:border-slate-700 hover:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 whitespace-nowrap shrink-0"
+            >
+              <i data-lucide="sliders-horizontal" class="h-3.5 w-3.5 text-slate-400"></i>
+              <span data-i18n="advancedSettings">Advanced Settings</span>
+              <i id="advancedChevron" data-lucide="chevron-down" class="h-3.5 w-3.5 transition-transform"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Collapsible Advanced Settings -->
+        <div id="advancedPanel" class="hidden border-t border-slate-800/80 pt-4">
+          <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+              <label for="testPromptInput" class="mb-1.5 block text-xs font-medium text-slate-300" data-i18n="testPromptLabel">
+                Test Prompt Message
+              </label>
+              <input
+                id="testPromptInput"
+                type="text"
+                value="Say OK"
+                class="w-full rounded-lg border border-slate-800 bg-slate-950 px-3.5 py-2 text-xs text-slate-100 placeholder-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                placeholder="Say OK"
+              />
+              <p class="mt-1 text-[11px] text-slate-500" data-i18n="testPromptHint">
+                Sent as user message with max_tokens: 15 to verify inference readiness.
+              </p>
+            </div>
+
+            <div>
+              <label for="corsProxyInput" class="mb-1.5 block text-xs font-medium text-slate-300" data-i18n="corsProxyLabel">
+                CORS Proxy URL Prefix (Optional)
+              </label>
+              <input
+                id="corsProxyInput"
+                type="url"
+                dir="ltr"
+                class="w-full rounded-lg border border-slate-800 bg-slate-950 px-3.5 py-2 font-mono text-xs text-slate-100 placeholder-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                placeholder="https://corsproxy.io/?"
+              />
+              <p class="mt-1 text-[11px] text-slate-500" data-i18n="corsProxyHint">
+                Optional prefix to bypass browser CORS restrictions on strict APIs (e.g., https://corsproxy.io/?).
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Real-time Progress Bar -->
+        <div class="space-y-1.5 border-t border-slate-800/80 pt-3.5">
+          <div class="flex items-center justify-between text-xs">
+            <span id="progressStatusText" class="font-medium text-slate-400" data-i18n="progressIdle">
+              Ready to test endpoints
+            </span>
+            <span id="progressCounter" class="font-mono text-slate-300 tabular-nums">0 / 0 (0%)</span>
+          </div>
+          <div class="h-2 w-full overflow-hidden rounded-full bg-slate-950 border border-slate-800/80">
+            <div
+              id="progressBarFill"
+              class="h-full w-0 rounded-full bg-gradient-to-r from-indigo-500 via-violet-500 to-emerald-400 transition-all duration-150"
+            ></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 4: Filtering Bar & Endpoints Table -->
+      <section class="rounded-xl border border-slate-800/90 bg-slate-900/65 backdrop-blur-md overflow-hidden">
+        <!-- Search & Filter Toolbar -->
+        <div class="flex flex-col gap-3 border-b border-slate-800/80 p-4 lg:flex-row lg:items-center lg:justify-between">
+          <!-- Search Bar -->
+          <div class="relative flex-1 max-w-md">
+            <i data-lucide="search" class="pointer-events-none absolute top-1/2 start-3 h-4 w-4 -translate-y-1/2 text-slate-500"></i>
+            <input
+              id="searchInput"
+              type="search"
+              class="w-full rounded-lg border border-slate-800 bg-slate-950 py-2 ps-9 pe-3 text-xs text-slate-100 placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              placeholder="Search by model name, target model, URL, or provider..."
+            />
+          </div>
+
+          <div class="flex flex-wrap items-center gap-3">
+            <!-- Status Filter Segmented Buttons -->
+            <div id="statusFilterGroup" class="inline-flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-950 p-1">
+              <button type="button" data-status-filter="all" class="status-filter-btn rounded-md px-3 py-1 text-xs font-medium transition-colors bg-indigo-600 text-white whitespace-nowrap shrink-0" data-i18n="filterAll">
+                All
+              </button>
+              <button type="button" data-status-filter="success" class="status-filter-btn rounded-md px-3 py-1 text-xs font-medium transition-colors text-slate-400 hover:text-slate-200 whitespace-nowrap shrink-0" data-i18n="filterWorking">
+                Working
+              </button>
+              <button type="button" data-status-filter="failed" class="status-filter-btn rounded-md px-3 py-1 text-xs font-medium transition-colors text-slate-400 hover:text-slate-200 whitespace-nowrap shrink-0" data-i18n="filterFailed">
+                Failed
+              </button>
+              <button type="button" data-status-filter="queued" class="status-filter-btn rounded-md px-3 py-1 text-xs font-medium transition-colors text-slate-400 hover:text-slate-200 whitespace-nowrap shrink-0" data-i18n="filterQueued">
+                Queued
+              </button>
+              <button type="button" data-status-filter="untested" class="status-filter-btn rounded-md px-3 py-1 text-xs font-medium transition-colors text-slate-400 hover:text-slate-200 whitespace-nowrap shrink-0" data-i18n="filterUntested">
+                Untested
+              </button>
+            </div>
+
+            <!-- Dynamic Provider Filter Dropdown -->
+            <select
+              id="providerFilterSelect"
+              class="rounded-lg border border-slate-800 bg-slate-950 px-3 py-1.5 text-xs font-medium text-slate-200 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            >
+              <option value="all">All Providers (0)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Table Container -->
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse text-start text-xs">
+            <thead>
+              <tr class="border-b border-slate-800/90 bg-slate-950/60 text-slate-400">
+                <th class="w-10 px-4 py-3 text-start">
+                  <input
+                    id="selectAllCheckbox"
+                    type="checkbox"
+                    aria-label="Select all visible endpoints"
+                    class="h-4 w-4 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-slate-950 cursor-pointer"
+                  />
+                </th>
+                <th class="px-4 py-3 text-start font-semibold whitespace-nowrap" data-i18n="colModel">Model Name &amp; Target</th>
+                <th class="px-4 py-3 text-start font-semibold whitespace-nowrap" data-i18n="colProvider">Provider &amp; Base URL</th>
+                <th class="px-4 py-3 text-start font-semibold whitespace-nowrap" data-i18n="colKey">API Key</th>
+                <th class="px-4 py-3 text-start font-semibold whitespace-nowrap" data-i18n="colStatus">Status</th>
+                <th class="px-4 py-3 text-end font-semibold whitespace-nowrap" data-i18n="colLatency">Latency</th>
+                <th class="px-4 py-3 text-end font-semibold whitespace-nowrap" data-i18n="colActions">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="endpointsTableBody" class="divide-y divide-slate-800/60">
+              <!-- Populated dynamically via JS -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Empty State -->
+        <div id="emptyState" class="flex flex-col items-center justify-center px-6 py-16 text-center">
+          <div class="mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-slate-800 bg-slate-950 text-slate-400">
+            <i data-lucide="server-off" class="h-6 w-6"></i>
+          </div>
+          <h3 id="emptyStateTitle" class="text-sm font-semibold text-slate-200" data-i18n="emptyTitle">
+            No endpoints loaded yet
+          </h3>
+          <p id="emptyStateDesc" class="mt-1 max-w-md text-xs text-slate-400" data-i18n="emptyDesc">
+            Upload or paste your litellm_config.yaml file above, or load the sample configuration to begin testing endpoints.
+          </p>
+        </div>
+
+        <!-- Table Footer Info -->
+        <div id="tableFooter" class="hidden items-center justify-between border-t border-slate-800/80 bg-slate-950/40 px-4 py-2.5 text-xs text-slate-400">
+          <span id="visibleCountLabel" class="tabular-nums"></span>
+          <span id="selectedCountLabel" class="tabular-nums"></span>
+        </div>
+      </section>
+    </main>
+
+    <!-- Response Inspector Modal (with Sparkline Trend History) -->
+    <div
+      id="inspectorModal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modalTitle"
+      class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm"
+    >
+      <div class="relative flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900 shadow-2xl">
+        <!-- Modal Header -->
+        <div class="flex items-center justify-between border-b border-slate-800 px-5 py-4">
+          <div class="min-w-0">
+            <h3 id="modalTitle" class="truncate text-base font-semibold text-slate-50 font-mono"></h3>
+            <p id="modalSubtitle" class="mt-0.5 truncate text-xs text-slate-400 font-mono"></p>
+          </div>
+          <button
+            id="closeModalBtn"
+            type="button"
+            aria-label="Close modal"
+            class="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+          >
+            <i data-lucide="x" class="h-5 w-5"></i>
+          </button>
+        </div>
+
+        <!-- Modal Body -->
+        <div class="flex-1 space-y-4 overflow-y-auto p-5 text-xs">
+          <!-- Metadata Grid -->
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-3 rounded-lg border border-slate-800 bg-slate-950/70 p-3.5">
+            <div>
+              <div class="text-[11px] text-slate-500" data-i18n="modalProvider">Provider</div>
+              <div id="modalProvider" class="mt-1 font-semibold text-slate-200"></div>
+            </div>
+            <div>
+              <div class="text-[11px] text-slate-500" data-i18n="modalStatus">Status</div>
+              <div id="modalStatus" class="mt-1"></div>
+            </div>
+            <div>
+              <div class="text-[11px] text-slate-500" data-i18n="modalLatency">Latency</div>
+              <div id="modalLatency" class="mt-1 font-mono font-semibold text-slate-200 tabular-nums"></div>
+            </div>
+          </div>
+
+          <!-- Latency History & Sparkline Trend -->
+          <div>
+            <div class="mb-1.5 flex items-center justify-between">
+              <span class="text-xs font-medium text-slate-400" data-i18n="latencyHistoryTitle">Latency Trend History (Last 3 Tests)</span>
+              <span id="latencyTrendBadge" class="font-mono text-[11px] text-slate-400"></span>
+            </div>
+            <div id="sparklineContainer" class="flex items-end gap-3 h-20 rounded-lg border border-slate-800 bg-slate-950 p-3">
+              <!-- Rendered via JS -->
+            </div>
+          </div>
+
+          <!-- Request URL -->
+          <div>
+            <div class="mb-1.5 text-xs font-medium text-slate-400" data-i18n="modalRequestUrl">Resolved Request URL</div>
+            <div id="modalRequestUrl" dir="ltr" class="break-all rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-300"></div>
+          </div>
+
+          <!-- Unmasked API Key + Copy -->
+          <div>
+            <div class="mb-1.5 flex items-center justify-between">
+              <span class="text-xs font-medium text-slate-400" data-i18n="modalApiKey">API Key (Unmasked)</span>
+              <button
+                id="copyKeyBtn"
+                type="button"
+                class="inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-slate-200 transition-colors hover:border-indigo-500/50 hover:bg-indigo-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 whitespace-nowrap"
+              >
+                <i data-lucide="copy" class="h-3 w-3"></i>
+                <span data-i18n="copyKey">Copy Key</span>
+              </button>
+            </div>
+            <div id="modalApiKey" dir="ltr" class="break-all rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 font-mono text-xs text-amber-300/90"></div>
+          </div>
+
+          <!-- Detailed Error Explanation (when failed) -->
+          <div id="modalErrorBox" class="hidden rounded-lg border border-rose-500/30 bg-rose-500/10 p-3.5 text-rose-200">
+            <div class="mb-1 font-semibold flex items-center gap-1.5">
+              <i data-lucide="alert-triangle" class="h-4 w-4 text-rose-400"></i>
+              <span data-i18n="modalDiagnosticTitle">Diagnostic Explanation</span>
+            </div>
+            <p id="modalErrorExplanation" class="leading-relaxed text-rose-200/90"></p>
+          </div>
+
+          <!-- Formatted Response / Payload -->
+          <div>
+            <div class="mb-1.5 text-xs font-medium text-slate-400" data-i18n="modalResponseBody">Server Response / Raw Payload</div>
+            <pre
+              id="modalResponsePre"
+              dir="ltr"
+              class="max-h-48 overflow-auto rounded-lg border border-slate-800 bg-slate-950 p-3.5 font-mono text-[11px] leading-relaxed text-slate-200"
+            ></pre>
+          </div>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="flex items-center justify-end gap-2.5 border-t border-slate-800 bg-slate-950/50 px-5 py-3.5">
+          <button
+            id="modalCloseFooterBtn"
+            type="button"
+            class="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-medium text-slate-200 transition-colors hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 whitespace-nowrap"
+            data-i18n="closeModal"
+          >
+            Close
+          </button>
+          <button
+            id="modalRetestBtn"
+            type="button"
+            class="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 whitespace-nowrap"
+          >
+            <i data-lucide="refresh-cw" class="h-3.5 w-3.5"></i>
+            <span data-i18n="retestEndpoint">Re-test Endpoint</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CSV Column Selection Modal -->
+    <div
+      id="csvModal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="csvModalTitle"
+      class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm"
+    >
+      <div class="relative flex w-full max-w-md flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-900 shadow-2xl p-5 space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+          <h3 id="csvModalTitle" class="text-sm font-semibold text-slate-100" data-i18n="csvModalTitle">Select CSV Export Columns</h3>
+          <button id="closeCsvModalBtn" type="button" class="text-slate-400 hover:text-slate-100">
+            <i data-lucide="x" class="h-4 w-4"></i>
+          </button>
+        </div>
+        <div id="csvColumnsList" class="space-y-2.5 text-xs text-slate-300">
+          <label class="flex items-center gap-2.5 cursor-pointer">
+            <input type="checkbox" data-csv-col="modelName" checked class="h-4 w-4 rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-indigo-500" />
+            <span data-i18n="csvColModel">Model Name</span>
+          </label>
+          <label class="flex items-center gap-2.5 cursor-pointer">
+            <input type="checkbox" data-csv-col="targetModel" checked class="h-4 w-4 rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-indigo-500" />
+            <span data-i18n="csvColTarget">Target Model</span>
+          </label>
+          <label class="flex items-center gap-2.5 cursor-pointer">
+            <input type="checkbox" data-csv-col="provider" checked class="h-4 w-4 rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-indigo-500" />
+            <span data-i18n="csvColProvider">Provider</span>
+          </label>
+          <label class="flex items-center gap-2.5 cursor-pointer">
+            <input type="checkbox" data-csv-col="apiBase" checked class="h-4 w-4 rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-indigo-500" />
+            <span data-i18n="csvColApiBase">API Base URL</span>
+          </label>
+          <label class="flex items-center gap-2.5 cursor-pointer">
+            <input type="checkbox" data-csv-col="status" checked class="h-4 w-4 rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-indigo-500" />
+            <span data-i18n="csvColStatus">Status</span>
+          </label>
+          <label class="flex items-center gap-2.5 cursor-pointer">
+            <input type="checkbox" data-csv-col="latency" checked class="h-4 w-4 rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-indigo-500" />
+            <span data-i18n="csvColLatency">Latency (ms)</span>
+          </label>
+          <label class="flex items-center gap-2.5 cursor-pointer">
+            <input type="checkbox" data-csv-col="httpCode" checked class="h-4 w-4 rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-indigo-500" />
+            <span data-i18n="csvColHttp">HTTP Code</span>
+          </label>
+          <label class="flex items-center gap-2.5 cursor-pointer">
+            <input type="checkbox" data-csv-col="errorCategory" checked class="h-4 w-4 rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-indigo-500" />
+            <span data-i18n="csvColError">Error Category</span>
+          </label>
+        </div>
+        <div class="flex items-center justify-end gap-2.5 border-t border-slate-800 pt-3">
+          <button id="cancelCsvModalBtn" type="button" class="rounded-lg border border-slate-700 bg-slate-800 px-3.5 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700" data-i18n="closeModal">Cancel</button>
+          <button id="confirmExportCsvBtn" type="button" class="rounded-lg bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500" data-i18n="exportCsv">Export CSV</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Non-blocking Toast Container -->
+    <div id="toastContainer" class="pointer-events-none fixed bottom-5 end-5 z-50 flex max-w-sm flex-col gap-2.5"></div>
+
+    <script>
+      (function () {
+        'use strict';
+
+        // =========================================================================
+        // 1. INTERNATIONALIZATION DICTIONARY (EN / AR)
+        // =========================================================================
+        const I18N = {
+          en: {
+            brandTitle: 'LLM Pulse',
+            langSwitch: 'العربية',
+            resetBtn: 'Reset',
+            installApp: 'Install App',
+            heroTitle: 'Validate & Benchmark LiteLLM Routing Endpoints',
+            heroSubtitle:
+              'Parse your litellm_config.yaml locally in the browser, run concurrent health checks across providers, analyze latency comparisons, and export results.',
+            hideYamlInput: 'Hide YAML Input',
+            showYamlInput: 'Show YAML Input',
+            exportWorking: 'Export Working (YAML)',
+            exportCsv: 'Export CSV',
+            exportJson: 'Export JSON',
+            uploadZoneLabel: 'Config File Upload (.yaml, .yml, .txt)',
+            dropTitle: 'Drop litellm_config.yaml here',
+            dropSubtitle: 'or click to browse local files',
+            pasteLabel: 'Or Paste Raw YAML Configuration',
+            loadSample: 'Load Sample Config',
+            parseYaml: 'Parse YAML',
+            statTotal: 'Total Endpoints',
+            statWorking: 'Working (Success)',
+            statFailed: 'Failed / Offline',
+            statPending: 'Pending / Testing',
+            statFastest: 'Fastest Provider',
+            noFastestYet: 'No tests completed',
+            chartTitle: 'Successful Endpoints Latency Comparison (ms)',
+            chartEmpty: 'Run tests to visualize latency of working endpoints.',
+            testAll: 'Test All',
+            testSelected: 'Test Selected ({n})',
+            stopTesting: 'Stop Testing',
+            concurrencyLabel: 'Concurrency',
+            timeoutLabel: 'Timeout',
+            advancedSettings: 'Advanced Settings',
+            testPromptLabel: 'Test Prompt Message',
+            testPromptHint: 'Sent as user message with max_tokens: 15 to verify inference readiness.',
+            corsProxyLabel: 'CORS Proxy URL Prefix (Optional)',
+            corsProxyHint: 'Optional prefix to bypass browser CORS restrictions on strict APIs (e.g., https://corsproxy.io/?).',
+            progressIdle: 'Ready to test endpoints',
+            progressRunning: 'Testing endpoints...',
+            progressDone: 'Batch testing completed',
+            progressStopped: 'Testing aborted by user',
+            searchPlaceholder: 'Search by model name, target model, URL, or provider...',
+            filterAll: 'All',
+            filterWorking: 'Working',
+            filterFailed: 'Failed',
+            filterQueued: 'Queued',
+            filterUntested: 'Untested',
+            allProviders: 'All Providers ({n})',
+            colModel: 'Model Name & Target',
+            colProvider: 'Provider & Base URL',
+            colKey: 'API Key',
+            colStatus: 'Status',
+            colLatency: 'Latency',
+            colActions: 'Actions',
+            emptyTitle: 'No endpoints loaded yet',
+            emptyDesc: 'Upload or paste your litellm_config.yaml file above, or load the sample configuration to begin testing endpoints.',
+            noFilterMatchTitle: 'No matching endpoints',
+            noFilterMatchDesc: 'Try adjusting your search query, status pill, or provider filter.',
+            visibleCount: 'Showing {shown} of {total} endpoints',
+            selectedCount: '{n} selected',
+            runTestTitle: 'Run single endpoint test',
+            viewDetailsTitle: 'View response details',
+            statusUntested: 'Untested',
+            statusQueued: 'Queued',
+            statusTesting: 'Testing...',
+            statusSuccess: '200 OK',
+            statusAborted: 'Aborted',
+            statusTimeout: 'TIMEOUT',
+            statusCorsNet: 'CORS / NET',
+            statusUnauthorized: '401 Unauthorized',
+            statusForbidden: '403 Forbidden',
+            statusNotFound: '404 Not Found',
+            statusRateLimit: '429 Rate Limit',
+            statusServerError: '500 Server Error',
+            statusHttpErr: 'HTTP {code}',
+            modalProvider: 'Provider',
+            modalStatus: 'Status',
+            modalLatency: 'Latency',
+            modalRequestUrl: 'Resolved Request URL',
+            modalApiKey: 'API Key (Unmasked)',
+            copyKey: 'Copy Key',
+            copied: 'Copied!',
+            modalDiagnosticTitle: 'Diagnostic Explanation',
+            modalResponseBody: 'Server Response / Raw Payload',
+            closeModal: 'Close',
+            retestEndpoint: 'Re-test Endpoint',
+            noResponseYet: 'This endpoint has not been tested yet. Click "Re-test Endpoint" to run a live check.',
+            noApiKey: '(none)',
+            latencyHistoryTitle: 'Latency Trend History (Last 3 Tests)',
+            noHistoryYet: 'No history recorded yet',
+            csvModalTitle: 'Select CSV Export Columns',
+            csvColModel: 'Model Name',
+            csvColTarget: 'Target Model',
+            csvColProvider: 'Provider',
+            csvColApiBase: 'API Base URL',
+            csvColStatus: 'Status',
+            csvColLatency: 'Latency (ms)',
+            csvColHttp: 'HTTP Code',
+            csvColError: 'Error Category',
+            diagTimeout: 'The request exceeded the configured timeout ({ms}ms) and was aborted by the browser.',
+            diagCorsNet:
+              'Browser blocked the request due to CORS policy, DNS failure, or offline network. Many LLM APIs disallow direct browser origins; try specifying a CORS Proxy URL in Advanced Settings.',
+            diag401: 'Authentication failed (401 Unauthorized). Check that the API key is valid, active, and has not expired.',
+            diag403: 'Access denied (403 Forbidden). Your API key lacks permission for this model or region.',
+            diag404: 'Endpoint or model not found (404). Verify the api_base URL and target model identifier.',
+            diag429: 'Rate limit or quota exceeded (429). The provider is throttling requests or account credits are exhausted.',
+            diag5xx: 'Upstream provider server error (HTTP {code}). The remote API is experiencing temporary issues.',
+            diagAborted: 'The test was cancelled before the server responded.',
+            diagGenericHttp: 'The server returned HTTP {code}. Inspect the raw payload below for provider-specific details.',
+            toastYamlEmpty: 'Please paste or upload a YAML configuration first.',
+            toastYamlParsed: 'Parsed {n} endpoints across {p} providers.',
+            toastYamlNoModels: 'YAML parsed, but no entries were found in model_list.',
+            toastYamlError: 'YAML syntax error: {msg}',
+            toastFileLoaded: 'Loaded file "{name}" ({n} endpoints).',
+            toastInvalidFileType: 'Unsupported file type. Please upload a .yaml, .yml, or .txt file.',
+            toastSampleLoaded: 'Sample configuration loaded with {n} endpoints.',
+            toastNothingToTest: 'No endpoints available to test.',
+            toastNoneSelected: 'Select at least one endpoint checkbox first.',
+            toastBatchComplete: 'Finished testing: {ok} working, {fail} failed.',
+            toastBatchStopped: 'Batch testing stopped.',
+            toastExported: 'Exported {n} working endpoints to YAML.',
+            toastNothingToExport: 'No working endpoints (200 OK) available to export.',
+            csvExported: 'Exported {n} test results to CSV.',
+            noCsvToExport: 'No test results available to export.',
+            jsonExported: 'Exported {n} endpoints to JSON.',
+            noJsonToExport: 'No endpoints available to export to JSON.',
+            toastKeyCopied: 'API key copied to clipboard.',
+            toastCopyFailed: 'Unable to copy to clipboard.',
+            toastResetDone: 'Workspace cleared cleanly.',
+          },
+          ar: {
+            brandTitle: 'LLM Pulse',
+            langSwitch: 'English',
+            resetBtn: 'إعادة تعيين',
+            installApp: 'تثبيت التطبيق',
+            heroTitle: 'فحص والتحقق من نقاط نهاية توجيه LiteLLM',
+            heroSubtitle:
+              'قم بتحليل ملف litellm_config.yaml محلياً في المتصفح، وتشغيل اختبارات الاتصال المتزامنة عبر المزودين، وتحليل مقارنات زمن الاستجابة، وتصدير النتائج.',
+            hideYamlInput: 'إخفاء محرر YAML',
+            showYamlInput: 'إظهار محرر YAML',
+            exportWorking: 'تصدير العاملة (YAML)',
+            exportCsv: 'تصدير CSV',
+            exportJson: 'تصدير JSON',
+            uploadZoneLabel: 'رفع ملف الإعدادات (.yaml, .yml, .txt)',
+            dropTitle: 'أسقط ملف litellm_config.yaml هنا',
+            dropSubtitle: 'أو انقر لاختيار ملف من جهازك',
+            pasteLabel: 'أو الصق محتوى YAML مباشرة',
+            loadSample: 'تحميل إعدادات تجريبية',
+            parseYaml: 'تحليل YAML',
+            statTotal: 'إجمالي النقاط',
+            statWorking: 'تعمل (ناجحة)',
+            statFailed: 'فاشلة / متوقفة',
+            statPending: 'قيد الانتظار / الفحص',
+            statFastest: 'أسرع مزود',
+            noFastestYet: 'لم تنتهِ الاختبارات',
+            chartTitle: 'مقارنة زمن استجابة النقاط الناجحة (مللي ثانية)',
+            chartEmpty: 'قم بتشغيل الاختبارات لعرض زمن استجابة النقاط العاملة.',
+            testAll: 'فحص الكل',
+            testSelected: 'فحص المحدد ({n})',
+            stopTesting: 'إيقاف الفحص',
+            concurrencyLabel: 'التزامن',
+            timeoutLabel: 'المهلة',
+            advancedSettings: 'إعدادات متقدمة',
+            testPromptLabel: 'رسالة اختبار النموذج',
+            testPromptHint: 'تُرسل كرسالة مستخدم مع max_tokens: 15 للتحقق من جاهزية الاستجابة.',
+            corsProxyLabel: 'بادئة بروكسي CORS (اختياري)',
+            corsProxyHint: 'بادئة اختيارية لتجاوز قيود CORS في المتصفح للواجهات الصارمة (مثل: https://corsproxy.io/?).',
+            progressIdle: 'جاهز لفحص نقاط النهاية',
+            progressRunning: 'جاري فحص نقاط النهاية...',
+            progressDone: 'اكتمل الفحص الجماعي',
+            progressStopped: 'تم إيقاف الفحص من قبل المستخدم',
+            searchPlaceholder: 'ابحث باسم النموذج، النموذج الهدف، الرابط، أو المزود...',
+            filterAll: 'الكل',
+            filterWorking: 'تعمل',
+            filterFailed: 'فاشلة',
+            filterQueued: 'في الانتظار',
+            filterUntested: 'غير مفحوصة',
+            allProviders: 'كل المزودين ({n})',
+            colModel: 'اسم النموذج والهدف',
+            colProvider: 'المزود والرابط الأساسي',
+            colKey: 'مفتاح API',
+            colStatus: 'الحالة',
+            colLatency: 'زمن الاستجابة',
+            colActions: 'الإجراءات',
+            emptyTitle: 'لم يتم تحميل نقاط نهاية بعد',
+            emptyDesc: 'قم برفع أو لصق ملف litellm_config.yaml أعلاه، أو حمّل الإعدادات التجريبية لبدء فحص نقاط النهاية.',
+            noFilterMatchTitle: 'لا توجد نتائج مطابقة',
+            noFilterMatchDesc: 'جرّب تعديل نص البحث أو فلتر الحالة أو المزود.',
+            visibleCount: 'عرض {shown} من أصل {total} نقطة نهاية',
+            selectedCount: 'تم تحديد {n}',
+            runTestTitle: 'فحص هذه النقطة فقط',
+            viewDetailsTitle: 'عرض تفاصيل الاستجابة',
+            statusUntested: 'غير مفحوص',
+            statusQueued: 'في الانتظار',
+            statusTesting: 'جاري الفحص...',
+            statusSuccess: '200 OK',
+            statusAborted: 'تم الإيقاف',
+            statusTimeout: 'انتهت المهلة',
+            statusCorsNet: 'حظر CORS / شبكة',
+            statusUnauthorized: '401 غير مصرح',
+            statusForbidden: '403 محظور',
+            statusNotFound: '404 غير موجود',
+            statusRateLimit: '429 تجاوز الحد',
+            statusServerError: '500 خطأ خادم',
+            statusHttpErr: 'خطأ HTTP {code}',
+            modalProvider: 'المزود',
+            modalStatus: 'الحالة',
+            modalLatency: 'زمن الاستجابة',
+            modalRequestUrl: 'رابط الطلب النهائي',
+            modalApiKey: 'مفتاح API (كامل)',
+            copyKey: 'نسخ المفتاح',
+            copied: 'تم النسخ!',
+            modalDiagnosticTitle: 'التفسير التشخيصي',
+            modalResponseBody: 'استجابة الخادم / البيانات الخام',
+            closeModal: 'إغلاق',
+            retestEndpoint: 'إعادة فحص النقطة',
+            noResponseYet: 'لم يتم فحص نقطة النهاية هذه بعد. انقر على "إعادة فحص النقطة" لإجراء فحص مباشر.',
+            noApiKey: '(لا يوجد)',
+            latencyHistoryTitle: 'تاريخ تباين زمن الاستجابة (آخر 3 اختبارات)',
+            noHistoryYet: 'لا يوجد تاريخ مسجل بعد',
+            csvModalTitle: 'تحديد أعمدة تصدير CSV',
+            csvColModel: 'اسم النموذج',
+            csvColTarget: 'النموذج الهدف',
+            csvColProvider: 'المزود',
+            csvColApiBase: 'رابط API الأساسي',
+            csvColStatus: 'الحالة',
+            csvColLatency: 'زمن الاستجابة (مللي ثانية)',
+            csvColHttp: 'رمز HTTP',
+            csvColError: 'نوع الخطأ',
+            diagTimeout: 'تجاوز الطلب المهلة المحددة ({ms} مللي ثانية) وتم إلغاؤه تلقائياً.',
+            diagCorsNet:
+              'منع المتصفح الطلب بسبب سياسة CORS أو فشل DNS أو انقطاع الشبكة. العديد من مزودي API لا يسمحون بطلبات المتصفح المباشرة؛ جرب إضافة بادئة بروكسي CORS في الإعدادات المتقدمة.',
+            diag401: 'فشلت المصادقة (401 Unauthorized). تحقق من صحة مفتاح API وأنه نشط وغير منتهي الصلاحية.',
+            diag403: 'تم رفض الوصول (403 Forbidden). لا يملك المفتاح صلاحية لهذا النموذج أو المنطقة.',
+            diag404: 'نقطة النهاية أو النموذج غير موجود (404). تحقق من صحة api_base واسم النموذج الهدف.',
+            diag429: 'تم تجاوز حد الطلبات أو الرصيد (429). المزود يقيّد الطلبات أو الرصيد مستنفد.',
+            diag5xx: 'خطأ في خادم المزود (HTTP {code}). الخدمة البعيدة تواجه مشكلة مؤقتة.',
+            diagAborted: 'تم إلغاء الاختبار قبل استلام استجابة من الخادم.',
+            diagGenericHttp: 'أعاد الخادم رمز HTTP {code}. راجع البيانات الخام أدناه لمعرفة تفاصيل المزود.',
+            toastYamlEmpty: 'يرجى لصق أو رفع ملف إعدادات YAML أولاً.',
+            toastYamlParsed: 'تم تحليل {n} نقطة نهاية عبر {p} مزودين.',
+            toastYamlNoModels: 'YAML parsed, but no entries were found in model_list.',
+            toastYamlError: 'خطأ في صيغة YAML: {msg}',
+            toastFileLoaded: 'تم تحميل الملف "{name}" ({n} نقطة نهاية).',
+            toastInvalidFileType: 'نوع ملف غير مدعوم. يرجى رفع ملف .yaml أو .yml أو .txt.',
+            toastSampleLoaded: 'تم تحميل الإعدادات التجريبية ({n} نقطة نهاية).',
+            toastNothingToTest: 'لا توجد نقاط نهاية متاحة للفحص.',
+            toastNoneSelected: 'يرجى تحديد نقطة نهاية واحدة على الأقل أولاً.',
+            toastBatchComplete: 'اكتمل الفحص: {ok} تعمل، {fail} فاشلة.',
+            toastBatchStopped: 'تم إيقاف الفحص الجماعي.',
+            toastExported: 'تم تصدير {n} نقطة نهاية عاملة إلى ملف YAML.',
+            toastNothingToExport: 'لا توجد نقاط نهاية عاملة (200 OK) لتصديرها.',
+            csvExported: 'تم تصدير {n} نتيجة فحص إلى CSV.',
+            noCsvToExport: 'لا توجد نتائج فحص لتصديرها.',
+            jsonExported: 'تم تصدير {n} نقطة نهاية إلى JSON.',
+            noJsonToExport: 'لا توجد نقاط نهاية لتصديرها.',
+            toastKeyCopied: 'تم نسخ مفتاح API إلى الحافظة.',
+            toastCopyFailed: 'تعذر النسخ إلى الحافظة.',
+            toastResetDone: 'تم مسح مساحة العمل بنجاح.',
+          },
+        };
+
+        const SAMPLE_YAML = `litellm_settings:
+  drop_params: true
+  fallbacks:
+    - primary/gpt-4o-mini:
+        - groq/llama-3.3-70b
+        - openrouter/free
+
+model_list:
+  - model_name: primary/gpt-4o-mini
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_base: https://api.openai.com/v1
+      api_key: sk-sample-openai-demo-key-9912a
+  - model_name: ollama1/gemma4:31b
+    litellm_params:
+      model: openai/gemma4:31b
+      api_base: https://ollama.com/v1
+      api_key: sample-ollama-token-4410b
+  - model_name: openrouter1/free
+    litellm_params:
+      model: openrouter/free
+      api_base: https://openrouter.ai/api/v1
+      api_key: sk-or-v1-sample-openrouter-demo-key-7721c
+  - model_name: groq/llama-3.3-70b
+    litellm_params:
+      model: openai/llama-3.3-70b-versatile
+      api_base: https://api.groq.com/openai/v1
+      api_key: gsk_sample_groq_demo_key_8834d
+  - model_name: nvidia1/gemma-4-31b-it
+    litellm_params:
+      model: openai/google/gemma-4-31b-it
+      api_base: https://integrate.api.nvidia.com/v1
+      api_key: nvapi-sample-nvidia-demo-key-5501e
+  - model_name: cf1/kimi-k2.7-code
+    litellm_params:
+      model: cloudflare/@cf/moonshotai/kimi-k2.7-code
+      api_base: https://api.cloudflare.com/client/v4/accounts/00000000000000000000000000000000/ai/run/
+      api_key: cfut_sample_cloudflare_demo_token_6612f
+  - model_name: mistral1/mistral-large-3
+    litellm_params:
+      model: openai/mistral-large-3
+      api_base: https://api.mistral.ai/v1
+      api_key: sample-mistral-demo-key-3349g
+  - model_name: sambanova1/minimax-m2-7
+    litellm_params:
+      model: openai/minimax-m2-7
+      api_base: https://api.sambanova.ai/v1
+      api_key: 00000000-0000-0000-0000-sample000001
+`;
+
+        // =========================================================================
+        // 2. APPLICATION STATE
+        // =========================================================================
+        const state = {
+          lang: 'en',
+          rawConfigObj: null,
+          endpoints: [],
+          filters: {
+            search: '',
+            status: 'all',
+            provider: 'all',
+          },
+          isRunningBatch: false,
+          stopRequested: false,
+          activeControllers: new Set(),
+          batchTotal: 0,
+          batchDone: 0,
+          batchState: 'idle',
+          modalEndpointId: null,
+          inputPanelVisible: true,
+          advancedVisible: false,
+          deferredInstallPrompt: null,
+        };
+
+        // =========================================================================
+        // 3. DOM REFERENCES
+        // =========================================================================
+        const dom = {
+          html: document.documentElement,
+          brandTitle: document.getElementById('brandTitle'),
+          langToggleBtn: document.getElementById('langToggleBtn'),
+          langToggleLabel: document.getElementById('langToggleLabel'),
+          resetBtn: document.getElementById('resetBtn'),
+          pwaInstallBtn: document.getElementById('pwaInstallBtn'),
+          toggleInputPanelBtn: document.getElementById('toggleInputPanelBtn'),
+          toggleInputPanelText: document.getElementById('toggleInputPanelText'),
+          yamlInputSection: document.getElementById('yamlInputSection'),
+          exportWorkingBtn: document.getElementById('exportWorkingBtn'),
+          openCsvModalBtn: document.getElementById('openCsvModalBtn'),
+          exportJsonBtn: document.getElementById('exportJsonBtn'),
+          csvModal: document.getElementById('csvModal'),
+          closeCsvModalBtn: document.getElementById('closeCsvModalBtn'),
+          cancelCsvModalBtn: document.getElementById('cancelCsvModalBtn'),
+          confirmExportCsvBtn: document.getElementById('confirmExportCsvBtn'),
+          csvColumnsList: document.getElementById('csvColumnsList'),
+          dropZone: document.getElementById('dropZone'),
+          fileInput: document.getElementById('fileInput'),
+          uploadedFileMeta: document.getElementById('uploadedFileMeta'),
+          uploadedFileName: document.getElementById('uploadedFileName'),
+          yamlTextarea: document.getElementById('yamlTextarea'),
+          loadSampleBtn: document.getElementById('loadSampleBtn'),
+          parseYamlBtn: document.getElementById('parseYamlBtn'),
+          statTotalValue: document.getElementById('statTotalValue'),
+          statWorkingValue: document.getElementById('statWorkingValue'),
+          statFailedValue: document.getElementById('statFailedValue'),
+          statPendingValue: document.getElementById('statPendingValue'),
+          statFastestValue: document.getElementById('statFastestValue'),
+          testAllBtn: document.getElementById('testAllBtn'),
+          testSelectedBtn: document.getElementById('testSelectedBtn'),
+          testSelectedLabel: document.getElementById('testSelectedLabel'),
+          stopTestingBtn: document.getElementById('stopTestingBtn'),
+          concurrencySelect: document.getElementById('concurrencySelect'),
+          timeoutSelect: document.getElementById('timeoutSelect'),
+          advancedToggleBtn: document.getElementById('advancedToggleBtn'),
+          advancedChevron: document.getElementById('advancedChevron'),
+          advancedPanel: document.getElementById('advancedPanel'),
+          testPromptInput: document.getElementById('testPromptInput'),
+          corsProxyInput: document.getElementById('corsProxyInput'),
+          progressStatusText: document.getElementById('progressStatusText'),
+          progressCounter: document.getElementById('progressCounter'),
+          progressBarFill: document.getElementById('progressBarFill'),
+          searchInput: document.getElementById('searchInput'),
+          statusFilterGroup: document.getElementById('statusFilterGroup'),
+          providerFilterSelect: document.getElementById('providerFilterSelect'),
+          selectAllCheckbox: document.getElementById('selectAllCheckbox'),
+          endpointsTableBody: document.getElementById('endpointsTableBody'),
+          emptyState: document.getElementById('emptyState'),
+          emptyStateTitle: document.getElementById('emptyStateTitle'),
+          emptyStateDesc: document.getElementById('emptyStateDesc'),
+          tableFooter: document.getElementById('tableFooter'),
+          visibleCountLabel: document.getElementById('visibleCountLabel'),
+          selectedCountLabel: document.getElementById('selectedCountLabel'),
+          inspectorModal: document.getElementById('inspectorModal'),
+          closeModalBtn: document.getElementById('closeModalBtn'),
+          modalCloseFooterBtn: document.getElementById('modalCloseFooterBtn'),
+          modalTitle: document.getElementById('modalTitle'),
+          modalSubtitle: document.getElementById('modalSubtitle'),
+          modalProvider: document.getElementById('modalProvider'),
+          modalStatus: document.getElementById('modalStatus'),
+          modalLatency: document.getElementById('modalLatency'),
+          modalRequestUrl: document.getElementById('modalRequestUrl'),
+          modalApiKey: document.getElementById('modalApiKey'),
+          copyKeyBtn: document.getElementById('copyKeyBtn'),
+          modalErrorBox: document.getElementById('modalErrorBox'),
+          modalErrorExplanation: document.getElementById('modalErrorExplanation'),
+          modalResponsePre: document.getElementById('modalResponsePre'),
+          modalRetestBtn: document.getElementById('modalRetestBtn'),
+          toastContainer: document.getElementById('toastContainer'),
+          sparklineContainer: document.getElementById('sparklineContainer'),
+          latencyTrendBadge: document.getElementById('latencyTrendBadge'),
+        };
+
+        // =========================================================================
+        // 4. HELPERS
+        // =========================================================================
+        function t(key, vars = {}) {
+          const dict = I18N[state.lang] || I18N.en;
+          let str = dict[key] || I18N.en[key] || key;
+          for (const [k, v] of Object.entries(vars)) {
+            str = str.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
+          }
+          return str;
+        }
+
+        function escapeHtml(str) {
+          return String(str ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+        }
+
+        function maskApiKey(key) {
+          if (!key || typeof key !== 'string') return '';
+          const trimmed = key.trim();
+          if (trimmed.length <= 8) {
+            return trimmed.slice(0, 2) + '••••••';
+          }
+          const prefixLen = Math.min(6, Math.max(3, Math.floor(trimmed.length * 0.15)));
+          const suffixLen = Math.min(4, Math.max(3, Math.floor(trimmed.length * 0.1)));
+          return `${trimmed.slice(0, prefixLen)}••••••${trimmed.slice(-suffixLen)}`;
+        }
+
+        function detectProvider(apiBase, modelName, targetModel) {
+          const base = (apiBase || '').toLowerCase();
+          const mName = (modelName || '').toLowerCase();
+          const tModel = (targetModel || '').toLowerCase();
+
+          if (base.includes('ollama.com') || base.includes('11434') || mName.startsWith('ollama')) return 'OLLAMA';
+          if (base.includes('openrouter.ai') || mName.startsWith('openrouter') || tModel.startsWith('openrouter/')) return 'OPENROUTER';
+          if (base.includes('api.groq.com') || mName.startsWith('groq')) return 'GROQ';
+          if (base.includes('nvidia.com') || mName.startsWith('nvidia')) return 'NVIDIA';
+          if (base.includes('cloudflare.com') || mName.startsWith('cf') || tModel.startsWith('cloudflare/')) return 'CLOUDFLARE';
+          if (base.includes('mistral.ai') || mName.startsWith('mistral')) return 'MISTRAL';
+          if (base.includes('sambanova.ai') || mName.startsWith('sambanova')) return 'SAMBANOVA';
+          if (base.includes('api.openai.com')) return 'OPENAI';
+          if (base.includes('generativelanguage.googleapis.com') || mName.startsWith('google') || mName.startsWith('gemini')) return 'GOOGLE';
+          if (base.includes('opencode.ai') || mName.startsWith('opencode')) return 'OPENCODE';
+          if (base.includes('llm7.io') || mName.startsWith('llm7')) return 'LLM7';
+          if (base.includes('chutes.ai') || mName.startsWith('chutes')) return 'CHUTES';
+
+          if (base) {
+            try {
+              const url = new URL(base.startsWith('http') ? base : `https://${base}`);
+              const parts = url.hostname.replace(/^www\./, '').split('.');
+              if (parts.length >= 2) {
+                const candidate = parts[0] === 'api' || parts[0] === 'integrate' ? parts[1] : parts[0];
+                if (candidate) return candidate.toUpperCase();
+              }
+            } catch (_) {}
+          }
+
+          if (mName.includes('/')) {
+            return mName.split('/')[0].replace(/\d+$/, '').toUpperCase() || 'CUSTOM';
+          }
+          return 'CUSTOM';
+        }
+
+        function getProviderBadgeStyle(provider) {
+          const map = {
+            OPENAI: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+            OLLAMA: 'border-slate-500/30 bg-slate-500/10 text-slate-200',
+            OPENROUTER: 'border-violet-500/30 bg-violet-500/10 text-violet-300',
+            GROQ: 'border-orange-500/30 bg-orange-500/10 text-orange-300',
+            NVIDIA: 'border-lime-500/30 bg-lime-500/10 text-lime-300',
+            CLOUDFLARE: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+            MISTRAL: 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300',
+            SAMBANOVA: 'border-pink-500/30 bg-pink-500/10 text-pink-300',
+            GOOGLE: 'border-sky-500/30 bg-sky-500/10 text-sky-300',
+            OPENCODE: 'border-indigo-500/30 bg-indigo-500/10 text-indigo-300',
+            LLM7: 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300',
+            CHUTES: 'border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-300',
+          };
+          return map[provider] || 'border-slate-700 bg-slate-800/80 text-slate-300';
+        }
+
+        function showToast(message, type = 'info') {
+          const toast = document.createElement('div');
+          const styleMap = {
+            success: 'border-emerald-500/40 bg-slate-900/95 text-emerald-200',
+            error: 'border-rose-500/40 bg-slate-900/95 text-rose-200',
+            warning: 'border-amber-500/40 bg-slate-900/95 text-amber-200',
+            info: 'border-indigo-500/40 bg-slate-900/95 text-indigo-200',
+          };
+          const iconMap = {
+            success: 'check-circle-2',
+            error: 'alert-circle',
+            warning: 'alert-triangle',
+            info: 'info',
+          };
+          const iconColorMap = {
+            success: 'text-emerald-400',
+            error: 'text-rose-400',
+            warning: 'text-amber-400',
+            info: 'text-indigo-400',
+          };
+
+          toast.className = `pointer-events-auto flex items-start gap-2.5 rounded-xl border px-4 py-3 text-xs shadow-xl backdrop-blur-md transition-all duration-200 ${styleMap[type] || styleMap.info}`;
+          toast.innerHTML = `
+            <i data-lucide="${iconMap[type] || 'info'}" class="mt-0.5 h-4 w-4 shrink-0 ${iconColorMap[type] || 'text-indigo-400'}"></i>
+            <span class="flex-1 leading-relaxed">${escapeHtml(message)}</span>
+          `;
+
+          dom.toastContainer.appendChild(toast);
+          refreshIcons(toast);
+
+          setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(6px)';
+            setTimeout(() => toast.remove(), 200);
+          }, 3800);
+        }
+
+        function refreshIcons(root = document) {
+          if (window.lucide && typeof window.lucide.createIcons === 'function') {
+            window.lucide.createIcons({ root });
+          }
+        }
+
+        // =========================================================================
+        // 5. YAML PARSING ENGINE
+        // =========================================================================
+        function parseYamlContent(yamlText, sourceInfo = null) {
+          const trimmed = (yamlText || '').trim();
+          if (!trimmed) {
+            showToast(t('toastYamlEmpty'), 'warning');
+            return false;
+          }
+
+          let parsed;
+          try {
+            parsed = window.jsyaml.load(trimmed);
+          } catch (err) {
+            showToast(t('toastYamlError', { msg: err.message || 'Invalid YAML' }), 'error');
+            return false;
+          }
+
+          if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.model_list)) {
+            showToast(t('toastYamlNoModels'), 'warning');
+            return false;
+          }
+
+          if (state.isRunningBatch) {
+            stopBatchTesting(true);
+          }
+
+          state.rawConfigObj = parsed;
+          const seenProviders = new Set();
+
+          state.endpoints = parsed.model_list.map((entry, idx) => {
+            const params = (entry && entry.litellm_params) || {};
+            const modelName = entry && entry.model_name ? String(entry.model_name) : `model-${idx + 1}`;
+            const targetModel = params.model ? String(params.model) : '';
+            const apiBase = params.api_base ? String(params.api_base) : '';
+            const apiKey = params.api_key ? String(params.api_key) : '';
+            const provider = detectProvider(apiBase, modelName, targetModel);
+            seenProviders.add(provider);
+
+            return {
+              id: `ep-${idx}-${Date.now()}`,
+              index: idx,
+              modelName,
+              targetModel,
+              apiBase,
+              apiKey,
+              provider,
+              rawEntry: entry,
+              selected: false,
+              status: 'untested',
+              httpCode: null,
+              errorCategory: null,
+              latencyMs: null,
+              latencyHistory: [],
+              resolvedUrl: '',
+              responseRaw: '',
+              responseFormatted: '',
+            };
+          });
+
+          state.filters.provider = 'all';
+          state.filters.status = 'all';
+          state.filters.search = '';
+          dom.searchInput.value = '';
+          state.batchTotal = 0;
+          state.batchDone = 0;
+          state.batchState = 'idle';
+
+          renderAll();
+
+          if (sourceInfo && sourceInfo.type === 'file') {
+            showToast(t('toastFileLoaded', { name: sourceInfo.name, n: state.endpoints.length }), 'success');
+          } else if (sourceInfo && sourceInfo.type === 'sample') {
+            showToast(t('toastSampleLoaded', { n: state.endpoints.length }), 'success');
+          } else {
+            showToast(t('toastYamlParsed', { n: state.endpoints.length, p: seenProviders.size }), 'success');
+          }
+
+          return true;
+        }
+
+        // =========================================================================
+        // 6. TESTING ENGINE & SMART REQUEST FORMATTING
+        // =========================================================================
+        function buildRequestSpec(ep) {
+          const base = (ep.apiBase || '').trim().replace(/\/+$/, '');
+          const rawModel = (ep.targetModel || '').trim();
+          const promptText = (dom.testPromptInput.value || 'Say OK').trim() || 'Say OK';
+          const isCloudflare = base.toLowerCase().includes('api.cloudflare.com') && base.toLowerCase().includes('/ai/run');
+
+          let cleanModel = rawModel;
+          if (isCloudflare) {
+            cleanModel = rawModel.replace(/^cloudflare\//i, '');
+          } else {
+            if (/^openai\//i.test(rawModel)) {
+              cleanModel = rawModel.replace(/^openai\//i, '');
+            } else if (/^(groq|mistral|sambanova|nvidia_nim|together_ai|fireworks_ai|deepinfra|anthropic|gemini|azure)\//i.test(rawModel)) {
+              cleanModel = rawModel.replace(/^[^/]+\//, '');
+            } else if (/^openrouter\//i.test(rawModel) && !/^openrouter\/(free|auto|stealth\/)/i.test(rawModel)) {
+              cleanModel = rawModel.replace(/^openrouter\//i, '');
+            }
+          }
+
+          let targetUrl = '';
+          let payload = {};
+
+          if (isCloudflare) {
+            const normalizedModelPath = cleanModel.replace(/^\/+/, '');
+            targetUrl = `${base}/${normalizedModelPath}`;
+            payload = {
+              messages: [{ role: 'user', content: promptText }],
+              max_tokens: 15,
+            };
+          } else {
+            if (!base) {
+              targetUrl = 'https://api.openai.com/v1/chat/completions';
+            } else if (base.endsWith('/chat/completions')) {
+              targetUrl = base;
+            } else {
+              targetUrl = `${base}/chat/completions`;
+            }
+            payload = {
+              model: cleanModel,
+              messages: [{ role: 'user', content: promptText }],
+              max_tokens: 15,
+            };
+          }
+
+          const proxyPrefix = (dom.corsProxyInput.value || '').trim();
+          let fetchUrl = targetUrl;
+          if (proxyPrefix) {
+            if (proxyPrefix.includes('?') || proxyPrefix.endsWith('=')) {
+              fetchUrl = `${proxyPrefix}${encodeURIComponent(targetUrl)}`;
+            } else {
+              const cleanProxy = proxyPrefix.endsWith('/') ? proxyPrefix : `${proxyPrefix}/`;
+              fetchUrl = `${cleanProxy}${targetUrl}`;
+            }
+          }
+
+          const headers = {
+            'Content-Type': 'application/json',
+          };
+          if (ep.apiKey) {
+            headers['Authorization'] = `Bearer ${ep.apiKey}`;
+          }
+
+          return { targetUrl, fetchUrl, headers, payload };
+        }
+
+        function formatServerPayload(rawText) {
+          if (!rawText) return '';
+          try {
+            const obj = JSON.parse(rawText);
+            return JSON.stringify(obj, null, 2);
+          } catch (_) {
+            return rawText;
+          }
+        }
+
+        async function testEndpoint(ep) {
+          const timeoutMs = parseInt(dom.timeoutSelect.value, 10) || 10000;
+          const spec = buildRequestSpec(ep);
+
+          ep.status = 'testing';
+          ep.httpCode = null;
+          ep.errorCategory = null;
+          ep.latencyMs = null;
+          ep.resolvedUrl = spec.fetchUrl;
+          ep.responseRaw = '';
+          ep.responseFormatted = '';
+
+          updateRowInPlace(ep);
+          renderStats();
+          renderLatencyChart();
+          if (state.modalEndpointId === ep.id) renderModalContent(ep);
+
+          const controller = new AbortController();
+          state.activeControllers.add(controller);
+
+          let timedOut = false;
+          const timeoutHandle = setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+          }, timeoutMs);
+
+          const startTime = performance.now();
+
+          try {
+            const response = await fetch(spec.fetchUrl, {
+              method: 'POST',
+              headers: spec.headers,
+              body: JSON.stringify(spec.payload),
+              signal: controller.signal,
+            });
+
+            const elapsed = Math.round(performance.now() - startTime);
+            ep.latencyMs = elapsed;
+            ep.httpCode = response.status;
+
+            ep.latencyHistory = ep.latencyHistory || [];
+            ep.latencyHistory.push(elapsed);
+            if (ep.latencyHistory.length > 3) {
+              ep.latencyHistory.shift();
+            }
+
+            let rawText = '';
+            try {
+              rawText = await response.text();
+            } catch (_) {
+              rawText = '';
+            }
+            ep.responseRaw = rawText;
+            ep.responseFormatted = formatServerPayload(rawText) || `HTTP ${response.status} ${response.statusText}`;
+
+            if (response.ok) {
+              ep.status = 'success';
+              ep.errorCategory = null;
+            } else {
+              ep.status = 'failed';
+              ep.errorCategory = 'HTTP';
+            }
+          } catch (err) {
+            const elapsed = Math.round(performance.now() - startTime);
+            ep.latencyMs = elapsed;
+
+            ep.latencyHistory = ep.latencyHistory || [];
+            ep.latencyHistory.push(elapsed);
+            if (ep.latencyHistory.length > 3) {
+              ep.latencyHistory.shift();
+            }
+
+            if (err && err.name === 'AbortError') {
+              ep.status = 'failed';
+              if (timedOut) {
+                ep.errorCategory = 'TIMEOUT';
+                ep.responseRaw = `Timeout after ${timeoutMs}ms`;
+                ep.responseFormatted = ep.responseRaw;
+              } else {
+                ep.errorCategory = 'ABORTED';
+                ep.responseRaw = 'Request aborted by user.';
+                ep.responseFormatted = ep.responseRaw;
+              }
+            } else {
+              ep.status = 'failed';
+              ep.errorCategory = 'CORS_NET';
+              const msg = err && err.message ? err.message : 'NetworkError / Failed to fetch';
+              ep.responseRaw = msg;
+              ep.responseFormatted = msg;
+            }
+          } finally {
+            clearTimeout(timeoutHandle);
+            state.activeControllers.delete(controller);
+            updateRowInPlace(ep);
+            renderStats();
+            renderControls();
+            renderLatencyChart();
+            if (state.modalEndpointId === ep.id) renderModalContent(ep);
+          }
+        }
+
+        async function runBatchTests(endpointsToRun) {
+          if (!endpointsToRun.length) return;
+          if (state.isRunningBatch) return;
+
+          const concurrency = Math.max(1, parseInt(dom.concurrencySelect.value, 10) || 5);
+
+          state.isRunningBatch = true;
+          state.stopRequested = false;
+          state.batchTotal = endpointsToRun.length;
+          state.batchDone = 0;
+          state.batchState = 'running';
+
+          for (const ep of endpointsToRun) {
+            ep.status = 'queued';
+          }
+          renderTable();
+          renderStats();
+          renderControls();
+          renderProgress();
+          renderLatencyChart();
+
+          let cursor = 0;
+
+          async function worker() {
+            while (!state.stopRequested) {
+              const myIndex = cursor++;
+              if (myIndex >= endpointsToRun.length) break;
+              const ep = endpointsToRun[myIndex];
+              await testEndpoint(ep);
+              state.batchDone += 1;
+              renderProgress();
+            }
+          }
+
+          const workerCount = Math.min(concurrency, endpointsToRun.length);
+          const workers = Array.from({ length: workerCount }, () => worker());
+          await Promise.allSettled(workers);
+
+          if (state.stopRequested) {
+            for (const ep of endpointsToRun) {
+              if (ep.status === 'queued') {
+                ep.status = 'untested';
+              }
+            }
+            state.batchState = 'stopped';
+          } else {
+            state.batchState = 'done';
+            const okCount = endpointsToRun.filter((e) => e.status === 'success').length;
+            const failCount = endpointsToRun.filter((e) => e.status === 'failed').length;
+            showToast(t('toastBatchComplete', { ok: okCount, fail: failCount }), okCount > 0 ? 'success' : 'warning');
+          }
+
+          state.isRunningBatch = false;
+          state.stopRequested = false;
+          renderAll();
+        }
+
+        function stopBatchTesting(silent = false) {
+          if (!state.isRunningBatch) return;
+          state.stopRequested = true;
+          for (const ctrl of state.activeControllers) {
+            try {
+              ctrl.abort();
+            } catch (_) {}
+          }
+          state.activeControllers.clear();
+          state.batchState = 'stopped';
+          if (!silent) {
+            showToast(t('toastBatchStopped'), 'warning');
+          }
+          renderProgress();
+          renderControls();
+        }
+
+        // =========================================================================
+        // 7. FILTERING & RENDERERS
+        // =========================================================================
+        function getFilteredEndpoints() {
+          const q = (state.filters.search || '').trim().toLowerCase();
+          const statusFilter = state.filters.status;
+          const providerFilter = state.filters.provider;
+
+          return state.endpoints.filter((ep) => {
+            if (providerFilter !== 'all' && ep.provider !== providerFilter) return false;
+            if (statusFilter === 'success' && ep.status !== 'success') return false;
+            if (statusFilter === 'failed' && ep.status !== 'failed') return false;
+            if (statusFilter === 'queued' && ep.status !== 'queued') return false;
+            if (statusFilter === 'untested' && ep.status !== 'untested') return false;
+
+            if (q) {
+              const hay = `${ep.modelName} ${ep.targetModel} ${ep.apiBase} ${ep.provider}`.toLowerCase();
+              if (!hay.includes(q)) return false;
+            }
+            return true;
+          });
+        }
+
+        function getStatusPresentation(ep) {
+          if (ep.status === 'success') {
+            return {
+              text: ep.httpCode && ep.httpCode !== 200 ? `HTTP ${ep.httpCode}` : t('statusSuccess'),
+              icon: 'check-circle-2',
+              cls: 'border-emerald-500/35 bg-emerald-500/15 text-emerald-300',
+              spin: false,
+            };
+          }
+          if (ep.status === 'testing') {
+            return {
+              text: t('statusTesting'),
+              icon: 'loader-2',
+              cls: 'border-indigo-500/35 bg-indigo-500/15 text-indigo-300',
+              spin: true,
+            };
+          }
+          if (ep.status === 'queued') {
+            return {
+              text: t('statusQueued'),
+              icon: 'clock',
+              cls: 'border-slate-700 bg-slate-800/80 text-slate-300',
+              spin: false,
+            };
+          }
+          if (ep.status === 'failed') {
+            if (ep.errorCategory === 'TIMEOUT') {
+              return { text: t('statusTimeout'), icon: 'timer-off', cls: 'border-amber-500/35 bg-amber-500/15 text-amber-300', spin: false };
+            }
+            if (ep.errorCategory === 'CORS_NET') {
+              return { text: t('statusCorsNet'), icon: 'shield-alert', cls: 'border-rose-500/35 bg-rose-500/15 text-rose-300', spin: false };
+            }
+            if (ep.errorCategory === 'ABORTED') {
+              return { text: t('statusAborted'), icon: 'ban', cls: 'border-slate-700 bg-slate-800 text-slate-300', spin: false };
+            }
+            const code = ep.httpCode;
+            if (code === 401) return { text: t('statusUnauthorized'), icon: 'key-round', cls: 'border-rose-500/35 bg-rose-500/15 text-rose-300', spin: false };
+            if (code === 403) return { text: t('statusForbidden'), icon: 'lock', cls: 'border-rose-500/35 bg-rose-500/15 text-rose-300', spin: false };
+            if (code === 404) return { text: t('statusNotFound'), icon: 'file-x', cls: 'border-rose-500/35 bg-rose-500/15 text-rose-300', spin: false };
+            if (code === 429) return { text: t('statusRateLimit'), icon: 'gauge', cls: 'border-amber-500/35 bg-amber-500/15 text-amber-300', spin: false };
+            if (code >= 500) return { text: code === 500 ? t('statusServerError') : t('statusHttpErr', { code }), icon: 'server-crash', cls: 'border-rose-500/35 bg-rose-500/15 text-rose-300', spin: false };
+            return { text: code ? t('statusHttpErr', { code }) : t('filterFailed'), icon: 'x-circle', cls: 'border-rose-500/35 bg-rose-500/15 text-rose-300', spin: false };
+          }
+          return { text: t('statusUntested'), icon: 'circle-dashed', cls: 'border-slate-800 bg-slate-900 text-slate-400', spin: false };
+        }
+
+        function getErrorDiagnosticExplanation(ep) {
+          if (ep.status !== 'failed') return '';
+          if (ep.errorCategory === 'TIMEOUT') return t('diagTimeout', { ms: parseInt(dom.timeoutSelect.value, 10) || 10000 });
+          if (ep.errorCategory === 'CORS_NET') return t('diagCorsNet');
+          if (ep.errorCategory === 'ABORTED') return t('diagAborted');
+          if (ep.httpCode === 401) return t('diag401');
+          if (ep.httpCode === 403) return t('diag403');
+          if (ep.httpCode === 404) return t('diag404');
+          if (ep.httpCode === 429) return t('diag429');
+          if (ep.httpCode >= 500) return t('diag5xx', { code: ep.httpCode });
+          if (ep.httpCode) return t('diagGenericHttp', { code: ep.httpCode });
+          return '';
+        }
+
+        function getLatencyThresholdStyle(ms) {
+          if (ms === null || ms === undefined) return 'text-slate-400';
+          if (ms < 500) {
+            return 'text-emerald-400 font-semibold bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded';
+          }
+          if (ms <= 1500) {
+            return 'text-amber-400 font-semibold bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded';
+          }
+          return 'text-rose-400 font-semibold bg-rose-500/10 border border-rose-500/30 px-2 py-0.5 rounded';
+        }
+
+        function buildRowHtml(ep) {
+          const st = getStatusPresentation(ep);
+          const providerCls = getProviderBadgeStyle(ep.provider);
+          const maskedKey = ep.apiKey ? maskApiKey(ep.apiKey) : t('noApiKey');
+          const latencyText = ep.latencyMs !== null ? `${ep.latencyMs} ms` : '—';
+          const latencyStyle = ep.status === 'success' ? getLatencyThresholdStyle(ep.latencyMs) : 'text-slate-400';
+
+          return `
+            <td class="px-4 py-3 align-middle">
+              <input
+                type="checkbox"
+                data-row-check="${escapeHtml(ep.id)}"
+                ${ep.selected ? 'checked' : ''}
+                aria-label="Select ${escapeHtml(ep.modelName)}"
+                class="row-checkbox h-4 w-4 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-slate-950 cursor-pointer"
+              />
+            </td>
+            <td class="px-4 py-3 align-middle max-w-[260px]">
+              <div class="font-mono text-xs font-semibold text-slate-100 truncate" title="${escapeHtml(ep.modelName)}">
+                ${escapeHtml(ep.modelName)}
+              </div>
+              <div class="mt-0.5 font-mono text-[11px] text-slate-400 truncate" title="${escapeHtml(ep.targetModel)}">
+                ${escapeHtml(ep.targetModel || '—')}
+              </div>
+            </td>
+            <td class="px-4 py-3 align-middle max-w-[300px]">
+              <div class="flex items-center gap-2">
+                <span class="inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-wide ${providerCls} whitespace-nowrap">
+                  ${escapeHtml(ep.provider)}
+                </span>
+              </div>
+              <div dir="ltr" class="mt-1 font-mono text-[11px] text-slate-400 truncate text-start" title="${escapeHtml(ep.apiBase)}">
+                ${escapeHtml(ep.apiBase || '—')}
+              </div>
+            </td>
+            <td class="px-4 py-3 align-middle whitespace-nowrap">
+              <span dir="ltr" class="inline-block rounded bg-slate-950/90 border border-slate-800 px-2 py-1 font-mono text-[11px] text-slate-300">
+                ${escapeHtml(maskedKey)}
+              </span>
+            </td>
+            <td class="px-4 py-3 align-middle whitespace-nowrap">
+              <span class="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium ${st.cls}">
+                <i data-lucide="${st.icon}" class="h-3.5 w-3.5 ${st.spin ? 'animate-spin-fast' : ''}"></i>
+                <span>${escapeHtml(st.text)}</span>
+              </span>
+            </td>
+            <td class="px-4 py-3 align-middle text-end whitespace-nowrap">
+              <span class="font-mono text-xs tabular-nums inline-block ${latencyStyle}">${escapeHtml(latencyText)}</span>
+            </td>
+            <td class="px-4 py-3 align-middle text-end whitespace-nowrap">
+              <div class="inline-flex items-center justify-end gap-1.5">
+                <button
+                  type="button"
+                  data-run-single="${escapeHtml(ep.id)}"
+                  ${ep.status === 'testing' ? 'disabled' : ''}
+                  title="${escapeHtml(t('runTestTitle'))}"
+                  class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-800 bg-slate-950 text-indigo-400 transition-colors hover:border-indigo-500/50 hover:bg-indigo-500/15 hover:text-indigo-200 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                >
+                  <i data-lucide="${ep.status === 'testing' ? 'loader-2' : 'play'}" class="h-3.5 w-3.5 ${ep.status === 'testing' ? 'animate-spin-fast' : ''}"></i>
+                </button>
+                <button
+                  type="button"
+                  data-inspect="${escapeHtml(ep.id)}"
+                  title="${escapeHtml(t('viewDetailsTitle'))}"
+                  class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-800 bg-slate-950 text-slate-300 transition-colors hover:border-slate-700 hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                >
+                  <i data-lucide="eye" class="h-3.5 w-3.5"></i>
+                </button>
+              </div>
+            </td>
+          `;
+        }
+
+        function updateRowInPlace(ep) {
+          const row = dom.endpointsTableBody.querySelector(`tr[data-endpoint-id="${CSS.escape(ep.id)}"]`);
+          if (!row) return;
+          row.innerHTML = buildRowHtml(ep);
+          refreshIcons(row);
+        }
+
+        function renderTable() {
+          const filtered = getFilteredEndpoints();
+
+          if (state.endpoints.length === 0) {
+            dom.endpointsTableBody.innerHTML = '';
+            dom.emptyState.classList.remove('hidden');
+            dom.emptyStateTitle.textContent = t('emptyTitle');
+            dom.emptyStateDesc.textContent = t('emptyDesc');
+            dom.tableFooter.classList.add('hidden');
+            dom.tableFooter.classList.remove('flex');
+            dom.selectAllCheckbox.checked = false;
+            dom.selectAllCheckbox.indeterminate = false;
+            return;
+          }
+
+          if (filtered.length === 0) {
+            dom.endpointsTableBody.innerHTML = '';
+            dom.emptyState.classList.remove('hidden');
+            dom.emptyStateTitle.textContent = t('noFilterMatchTitle');
+            dom.emptyStateDesc.textContent = t('noFilterMatchDesc');
+            dom.tableFooter.classList.remove('hidden');
+            dom.tableFooter.classList.add('flex');
+            dom.visibleCountLabel.textContent = t('visibleCount', { shown: 0, total: state.endpoints.length });
+            dom.selectedCountLabel.textContent = t('selectedCount', { n: state.endpoints.filter((e) => e.selected).length });
+            dom.selectAllCheckbox.checked = false;
+            dom.selectAllCheckbox.indeterminate = false;
+            return;
+          }
+
+          dom.emptyState.classList.add('hidden');
+          const fragment = document.createDocumentFragment();
+          for (const ep of filtered) {
+            const tr = document.createElement('tr');
+            tr.setAttribute('data-endpoint-id', ep.id);
+            tr.className = 'transition-colors hover:bg-slate-800/35';
+            tr.innerHTML = buildRowHtml(ep);
+            fragment.appendChild(tr);
+          }
+
+          dom.endpointsTableBody.innerHTML = '';
+          dom.endpointsTableBody.appendChild(fragment);
+          refreshIcons(dom.endpointsTableBody);
+
+          const selectedVisibleCount = filtered.filter((e) => e.selected).length;
+          dom.selectAllCheckbox.checked = selectedVisibleCount > 0 && selectedVisibleCount === filtered.length;
+          dom.selectAllCheckbox.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < filtered.length;
+
+          dom.tableFooter.classList.remove('hidden');
+          dom.tableFooter.classList.add('flex');
+          dom.visibleCountLabel.textContent = t('visibleCount', { shown: filtered.length, total: state.endpoints.length });
+          dom.selectedCountLabel.textContent = t('selectedCount', { n: state.endpoints.filter((e) => e.selected).length });
+        }
+
+        function renderStats() {
+          const total = state.endpoints.length;
+          const working = state.endpoints.filter((e) => e.status === 'success').length;
+          const failed = state.endpoints.filter((e) => e.status === 'failed').length;
+          const pending = state.endpoints.filter((e) => e.status === 'untested' || e.status === 'queued' || e.status === 'testing').length;
+
+          dom.statTotalValue.textContent = total;
+          dom.statWorkingValue.textContent = working;
+          dom.statFailedValue.textContent = failed;
+          dom.statPendingValue.textContent = pending;
+
+          const successful = state.endpoints.filter((e) => e.status === 'success' && e.latencyMs !== null);
+          if (successful.length === 0) {
+            dom.statFastestValue.textContent = '—';
+          } else {
+            const providerMap = {};
+            for (const ep of successful) {
+              if (!providerMap[ep.provider]) {
+                providerMap[ep.provider] = { sum: 0, count: 0 };
+              }
+              providerMap[ep.provider].sum += ep.latencyMs;
+              providerMap[ep.provider].count += 1;
+            }
+
+            let bestProvider = null;
+            let bestAvg = Infinity;
+
+            for (const [prov, data] of Object.entries(providerMap)) {
+              const avg = data.sum / data.count;
+              if (avg < bestAvg) {
+                bestAvg = avg;
+                bestProvider = prov;
+              }
+            }
+
+            if (bestProvider) {
+              dom.statFastestValue.textContent = `${bestProvider} (${Math.round(bestAvg)}ms)`;
+            } else {
+              dom.statFastestValue.textContent = '—';
+            }
+          }
+        }
+
+        function renderProviderDropdown() {
+          const counts = {};
+          for (const ep of state.endpoints) {
+            counts[ep.provider] = (counts[ep.provider] || 0) + 1;
+          }
+          const providers = Object.keys(counts).sort();
+          const current = state.filters.provider;
+
+          let optionsHtml = `<option value="all">${escapeHtml(t('allProviders', { n: state.endpoints.length }))}</option>`;
+          for (const p of providers) {
+            optionsHtml += `<option value="${escapeHtml(p)}">${escapeHtml(p)} (${counts[p]})</option>`;
+          }
+          dom.providerFilterSelect.innerHTML = optionsHtml;
+          dom.providerFilterSelect.value = providers.includes(current) ? current : 'all';
+        }
+
+        function renderControls() {
+          const hasEndpoints = state.endpoints.length > 0;
+          const selectedCount = state.endpoints.filter((e) => e.selected).length;
+          const workingCount = state.endpoints.filter((e) => e.status === 'success').length;
+
+          dom.testAllBtn.disabled = !hasEndpoints || state.isRunningBatch;
+          dom.testSelectedBtn.disabled = !hasEndpoints || selectedCount === 0 || state.isRunningBatch;
+          dom.testSelectedLabel.textContent = t('testSelected', { n: selectedCount });
+          dom.stopTestingBtn.disabled = !state.isRunningBatch;
+          dom.exportWorkingBtn.disabled = workingCount === 0;
+          dom.openCsvModalBtn.disabled = !hasEndpoints;
+          dom.exportJsonBtn.disabled = !hasEndpoints;
+        }
+
+        function renderProgress() {
+          const total = state.batchTotal;
+          const done = state.batchDone;
+          const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+          dom.progressCounter.textContent = `${done} / ${total} (${pct}%)`;
+          dom.progressBarFill.style.width = `${pct}%`;
+
+          if (state.batchState === 'running') {
+            dom.progressStatusText.textContent = t('progressRunning');
+            dom.progressStatusText.className = 'font-medium text-indigo-300';
+          } else if (state.batchState === 'done') {
+            dom.progressStatusText.textContent = t('progressDone');
+            dom.progressStatusText.className = 'font-medium text-emerald-400';
+          } else if (state.batchState === 'stopped') {
+            dom.progressStatusText.textContent = t('progressStopped');
+            dom.progressStatusText.className = 'font-medium text-amber-300';
+          } else {
+            dom.progressStatusText.textContent = t('progressIdle');
+            dom.progressStatusText.className = 'font-medium text-slate-400';
+          }
+        }
+
+        function renderStatusFilterPills() {
+          const buttons = dom.statusFilterGroup.querySelectorAll('.status-filter-btn');
+          buttons.forEach((btn) => {
+            const val = btn.getAttribute('data-status-filter');
+            if (val === state.filters.status) {
+              btn.className = 'status-filter-btn rounded-md px-3 py-1 text-xs font-medium transition-colors bg-indigo-600 text-white whitespace-nowrap shrink-0';
+            } else {
+              btn.className = 'status-filter-btn rounded-md px-3 py-1 text-xs font-medium transition-colors text-slate-400 hover:text-slate-200 whitespace-nowrap shrink-0';
+            }
+          });
+        }
+
+        // Render Recharts Composed Chart below summary cards (Bar + Provider Average Line)
+        function renderLatencyChart() {
+          const container = document.getElementById('latencyChartContainer');
+          const countBadge = document.getElementById('chartCountBadge');
+          if (!container || !window.React || !window.ReactDOM || !window.Recharts) return;
+
+          const successfulEndpoints = state.endpoints.filter((e) => e.status === 'success' && e.latencyMs !== null);
+          countBadge.textContent = `${successfulEndpoints.length} working`;
+
+          if (successfulEndpoints.length === 0) {
+            container.innerHTML = `
+              <div class="flex h-full w-full flex-col items-center justify-center text-center text-slate-500 text-xs py-8">
+                <i data-lucide="bar-chart-2" class="h-8 w-8 text-slate-600 mb-2"></i>
+                <p>${escapeHtml(t('chartEmpty'))}</p>
+              </div>
+            `;
+            refreshIcons(container);
+            return;
+          }
+
+          // Calculate average latency per provider in real-time
+          const providerTotals = {};
+          const providerCounts = {};
+          successfulEndpoints.forEach((e) => {
+            providerTotals[e.provider] = (providerTotals[e.provider] || 0) + e.latencyMs;
+            providerCounts[e.provider] = (providerCounts[e.provider] || 0) + 1;
+          });
+          const providerAvg = {};
+          Object.keys(providerTotals).forEach((p) => {
+            providerAvg[p] = Math.round(providerTotals[p] / providerCounts[p]);
+          });
+
+          const chartData = successfulEndpoints.map((e) => ({
+            name: e.modelName.length > 22 ? e.modelName.slice(0, 20) + '...' : e.modelName,
+            fullName: e.modelName,
+            provider: e.provider,
+            latency: e.latencyMs,
+            avgLatency: providerAvg[e.provider] || e.latencyMs,
+          }));
+
+          const { ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid } = window.Recharts;
+          const h = window.React.createElement;
+
+          const CustomTooltip = ({ active, payload }) => {
+            if (active && payload && payload.length) {
+              const data = payload[0].payload;
+              return h('div', { className: 'rounded-lg border border-slate-800 bg-slate-900 p-3 text-xs shadow-xl text-slate-200 space-y-1' }, [
+                h('div', { key: 'fn', className: 'font-mono font-semibold text-slate-100' }, data.fullName),
+                h('div', { key: 'pr', className: 'text-[11px] text-slate-400' }, `Provider: ${data.provider}`),
+                h('div', { key: 'lat', className: 'font-mono text-emerald-400 font-bold mt-1' }, `Endpoint Latency: ${data.latency} ms`),
+                h('div', { key: 'avg', className: 'font-mono text-indigo-400 font-medium' }, `Provider Average: ${data.avgLatency} ms`),
+              ]);
+            }
+            return null;
+          };
+
+          const chartElement = h(ResponsiveContainer, { width: '100%', height: '100%' },
+            h(ComposedChart, { data: chartData, margin: { top: 10, right: 10, left: -15, bottom: 25 } }, [
+              h(CartesianGrid, { key: 'grid', strokeDasharray: '3 3', stroke: '#1e293b', vertical: false }),
+              h(XAxis, { key: 'xaxis', dataKey: 'name', stroke: '#64748b', fontSize: 10, angle: -20, textAnchor: 'end', interval: 0 }),
+              h(YAxis, { key: 'yaxis', stroke: '#64748b', fontSize: 10, unit: 'ms' }),
+              h(Tooltip, { key: 'tooltip', content: h(CustomTooltip) }),
+              h(Bar, { key: 'bar', dataKey: 'latency', fill: '#10b981', radius: [4, 4, 0, 0], name: 'Latency' }),
+              h(Line, { key: 'line', type: 'monotone', dataKey: 'avgLatency', stroke: '#6366f1', strokeWidth: 2, dot: { r: 3, fill: '#6366f1' }, name: 'Provider Avg' })
+            ])
+          );
+
+          if (!window._latencyChartRoot) {
+            window._latencyChartRoot = window.ReactDOM.createRoot(container);
+          }
+          window._latencyChartRoot.render(chartElement);
+        }
+
+        function renderSparkline(history) {
+          if (!history || history.length === 0) {
+            dom.sparklineContainer.innerHTML = `<span class="text-xs text-slate-500 italic">${escapeHtml(t('noHistoryYet'))}</span>`;
+            dom.latencyTrendBadge.textContent = '—';
+            return;
+          }
+
+          dom.latencyTrendBadge.textContent = history.map((m) => `${m}ms`).join(' → ');
+          const max = Math.max(...history, 100);
+
+          let html = '';
+          history.forEach((val, i) => {
+            const heightPct = Math.max(15, Math.round((val / max) * 100));
+            const colorCls = val < 500 ? 'bg-emerald-500' : val <= 1500 ? 'bg-amber-500' : 'bg-rose-500';
+            html += `
+              <div class="flex flex-col items-center gap-1 flex-1 h-full justify-end group">
+                <span class="font-mono text-[10px] text-slate-300">${val}ms</span>
+                <div class="w-full rounded-t ${colorCls} transition-all duration-300" style="height: ${heightPct}%"></div>
+                <span class="text-[9px] text-slate-500">T${i + 1}</span>
+              </div>
+            `;
+          });
+          dom.sparklineContainer.innerHTML = html;
+        }
+
+        function renderModalContent(ep) {
+          if (!ep) return;
+          const st = getStatusPresentation(ep);
+          const spec = buildRequestSpec(ep);
+
+          dom.modalTitle.textContent = ep.modelName;
+          dom.modalSubtitle.textContent = ep.targetModel || '—';
+          dom.modalProvider.textContent = ep.provider;
+          dom.modalStatus.innerHTML = `
+            <span class="inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium ${st.cls}">
+              <i data-lucide="${st.icon}" class="h-3.5 w-3.5 ${st.spin ? 'animate-spin-fast' : ''}"></i>
+              <span>${escapeHtml(st.text)}</span>
+            </span>
+          `;
+          dom.modalLatency.textContent = ep.latencyMs !== null ? `${ep.latencyMs} ms` : '—';
+          dom.modalRequestUrl.textContent = ep.resolvedUrl || spec.fetchUrl;
+          dom.modalApiKey.textContent = ep.apiKey || t('noApiKey');
+          dom.copyKeyBtn.disabled = !ep.apiKey;
+
+          renderSparkline(ep.latencyHistory || []);
+
+          const diag = getErrorDiagnosticExplanation(ep);
+          if (diag) {
+            dom.modalErrorBox.classList.remove('hidden');
+            dom.modalErrorExplanation.textContent = diag;
+          } else {
+            dom.modalErrorBox.classList.add('hidden');
+            dom.modalErrorExplanation.textContent = '';
+          }
+
+          dom.modalResponsePre.textContent = ep.responseFormatted || t('noResponseYet');
+          dom.modalRetestBtn.disabled = ep.status === 'testing';
+
+          refreshIcons(dom.inspectorModal);
+        }
+
+        function applyTranslations() {
+          const isAr = state.lang === 'ar';
+          dom.html.lang = isAr ? 'ar' : 'en';
+          dom.html.dir = isAr ? 'rtl' : 'ltr';
+          dom.brandTitle.textContent = t('brandTitle');
+          dom.langToggleLabel.textContent = t('langSwitch');
+          dom.searchInput.placeholder = t('searchPlaceholder');
+
+          document.querySelectorAll('[data-i18n]').forEach((el) => {
+            const key = el.getAttribute('data-i18n');
+            if (key) {
+              el.textContent = t(key);
+            }
+          });
+
+          dom.toggleInputPanelText.textContent = state.inputPanelVisible ? t('hideYamlInput') : t('showYamlInput');
+          renderAll();
+        }
+
+        function renderAll() {
+          renderStats();
+          renderProviderDropdown();
+          renderStatusFilterPills();
+          renderControls();
+          renderProgress();
+          renderTable();
+          renderLatencyChart();
+          if (state.modalEndpointId) {
+            const ep = state.endpoints.find((e) => e.id === state.modalEndpointId);
+            if (ep) renderModalContent(ep);
+          }
+        }
+
+        // =========================================================================
+        // 8. MODAL & EXPORT HANDLERS
+        // =========================================================================
+        function openInspectorModal(endpointId) {
+          const ep = state.endpoints.find((e) => e.id === endpointId);
+          if (!ep) return;
+          state.modalEndpointId = ep.id;
+          renderModalContent(ep);
+          dom.inspectorModal.classList.remove('hidden');
+          dom.inspectorModal.classList.add('flex');
+        }
+
+        function closeInspectorModal() {
+          state.modalEndpointId = null;
+          dom.inspectorModal.classList.add('hidden');
+          dom.inspectorModal.classList.remove('flex');
+        }
+
+        function openCsvModal() {
+          if (!state.endpoints.length) {
+            showToast(t('noCsvToExport'), 'warning');
+            return;
+          }
+          dom.csvModal.classList.remove('hidden');
+          dom.csvModal.classList.add('flex');
+        }
+
+        function closeCsvModal() {
+          dom.csvModal.classList.add('hidden');
+          dom.csvModal.classList.remove('flex');
+        }
+
+        function exportWorkingConfig() {
+          const working = state.endpoints.filter((e) => e.status === 'success');
+          if (!working.length) {
+            showToast(t('toastNothingToExport'), 'warning');
+            return;
+          }
+
+          const exportObj = {};
+          if (state.rawConfigObj && typeof state.rawConfigObj === 'object') {
+            for (const [key, value] of Object.entries(state.rawConfigObj)) {
+              if (key !== 'model_list') {
+                exportObj[key] = value;
+              }
+            }
+          }
+          exportObj.model_list = working.map((e) => e.rawEntry);
+
+          const yamlString = window.jsyaml.dump(exportObj, {
+            noRefs: true,
+            lineWidth: -1,
+            quotingType: '"',
+          });
+
+          const blob = new Blob([yamlString], { type: 'text/yaml;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'litellm_working_config.yaml';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+
+          showToast(t('toastExported', { n: working.length }), 'success');
+        }
+
+        function executeJsonExport() {
+          if (!state.endpoints.length) {
+            showToast(t('noJsonToExport'), 'warning');
+            return;
+          }
+
+          const exportData = {
+            version: '1.0',
+            exportedAt: new Date().toISOString(),
+            totalEndpoints: state.endpoints.length,
+            endpoints: state.endpoints.map((e) => ({
+              modelName: e.modelName,
+              targetModel: e.targetModel,
+              provider: e.provider,
+              apiBase: e.apiBase,
+              status: e.status,
+              latencyMs: e.latencyMs,
+              httpCode: e.httpCode,
+              errorCategory: e.errorCategory,
+              latencyHistory: e.latencyHistory,
+              litellm_params: e.rawEntry?.litellm_params || {},
+            })),
+          };
+
+          const jsonString = JSON.stringify(exportData, null, 2);
+          const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'llm_pulse_endpoints.json';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+
+          showToast(t('jsonExported', { n: state.endpoints.length }), 'success');
+        }
+
+        function executeCsvExport() {
+          if (!state.endpoints.length) {
+            showToast(t('noCsvToExport'), 'warning');
+            closeCsvModal();
+            return;
+          }
+
+          const colCheckboxes = dom.csvColumnsList.querySelectorAll('input[type="checkbox"]');
+          const activeCols = {};
+          colCheckboxes.forEach((cb) => {
+            activeCols[cb.getAttribute('data-csv-col')] = cb.checked;
+          });
+
+          const headerMap = {
+            modelName: 'Model Name',
+            targetModel: 'Target Model',
+            provider: 'Provider',
+            apiBase: 'API Base URL',
+            status: 'Status',
+            latency: 'Latency (ms)',
+            httpCode: 'HTTP Code',
+            errorCategory: 'Error Category',
+          };
+
+          const selectedKeys = Object.keys(activeCols).filter((k) => activeCols[k]);
+          if (!selectedKeys.length) {
+            showToast('Please select at least one column to export.', 'warning');
+            return;
+          }
+
+          const headers = selectedKeys.map((k) => headerMap[k]);
+          const rows = state.endpoints.map((e) => {
+            const rowObj = {
+              modelName: `"${(e.modelName || '').replace(/"/g, '""')}"`,
+              targetModel: `"${(e.targetModel || '').replace(/"/g, '""')}"`,
+              provider: `"${(e.provider || '').replace(/"/g, '""')}"`,
+              apiBase: `"${(e.apiBase || '').replace(/"/g, '""')}"`,
+              status: `"${(e.status || '').replace(/"/g, '""')}"`,
+              latency: e.latencyMs !== null ? e.latencyMs : '',
+              httpCode: e.httpCode !== null ? e.httpCode : '',
+              errorCategory: `"${(e.errorCategory || '').replace(/"/g, '""')}"`,
+            };
+            return selectedKeys.map((k) => rowObj[k]);
+          });
+
+          const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+          const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'llm_pulse_test_results.csv';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+
+          closeCsvModal();
+          showToast(t('csvExported', { n: state.endpoints.length }), 'success');
+        }
+
+        function resetAll() {
+          if (state.isRunningBatch) {
+            stopBatchTesting(true);
+          }
+          closeInspectorModal();
+          closeCsvModal();
+          state.rawConfigObj = null;
+          state.endpoints = [];
+          state.filters = { search: '', status: 'all', provider: 'all' };
+          state.batchTotal = 0;
+          state.batchDone = 0;
+          state.batchState = 'idle';
+          dom.yamlTextarea.value = '';
+          dom.searchInput.value = '';
+          dom.fileInput.value = '';
+          dom.uploadedFileMeta.classList.add('hidden');
+          dom.uploadedFileMeta.classList.remove('flex');
+          dom.uploadedFileName.textContent = '';
+
+          if (!state.inputPanelVisible) {
+            state.inputPanelVisible = true;
+            dom.yamlInputSection.classList.remove('hidden');
+            dom.toggleInputPanelText.textContent = t('hideYamlInput');
+          }
+
+          renderAll();
+          showToast(t('toastResetDone'), 'info');
+        }
+
+        // =========================================================================
+        // 9. EVENT WIRING & GLOBAL KEYBOARD SHORTCUTS
+        // =========================================================================
+        dom.langToggleBtn.addEventListener('click', () => {
+          state.lang = state.lang === 'en' ? 'ar' : 'en';
+          applyTranslations();
+        });
+
+        dom.resetBtn.addEventListener('click', resetAll);
+
+        dom.toggleInputPanelBtn.addEventListener('click', () => {
+          state.inputPanelVisible = !state.inputPanelVisible;
+          dom.yamlInputSection.classList.toggle('hidden', !state.inputPanelVisible);
+          dom.toggleInputPanelText.textContent = state.inputPanelVisible ? t('hideYamlInput') : t('showYamlInput');
+        });
+
+        dom.advancedToggleBtn.addEventListener('click', () => {
+          state.advancedVisible = !state.advancedVisible;
+          dom.advancedPanel.classList.toggle('hidden', !state.advancedVisible);
+          dom.advancedChevron.style.transform = state.advancedVisible ? 'rotate(180deg)' : 'rotate(0deg)';
+        });
+
+        function handleFile(file) {
+          if (!file) return;
+          const validExt = /\.(ya?ml|txt)$/i.test(file.name);
+          if (!validExt) {
+            showToast(t('toastInvalidFileType'), 'error');
+            return;
+          }
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            const text = String(ev.target.result || '');
+            dom.yamlTextarea.value = text;
+            dom.uploadedFileName.textContent = file.name;
+            dom.uploadedFileMeta.classList.remove('hidden');
+            dom.uploadedFileMeta.classList.add('flex');
+            parseYamlContent(text, { type: 'file', name: file.name });
+          };
+          reader.readAsText(file);
+        }
+
+        dom.dropZone.addEventListener('click', () => dom.fileInput.click());
+        dom.dropZone.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            dom.fileInput.click();
+          }
+        });
+        dom.fileInput.addEventListener('change', (e) => {
+          const file = e.target.files && e.target.files[0];
+          handleFile(file);
+        });
+        dom.dropZone.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          dom.dropZone.classList.add('border-indigo-500', 'bg-indigo-950/25');
+        });
+        dom.dropZone.addEventListener('dragleave', () => {
+          dom.dropZone.classList.remove('border-indigo-500', 'bg-indigo-950/25');
+        });
+        dom.dropZone.addEventListener('drop', (e) => {
+          e.preventDefault();
+          dom.dropZone.classList.remove('border-indigo-500', 'bg-indigo-950/25');
+          const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+          handleFile(file);
+        });
+
+        dom.parseYamlBtn.addEventListener('click', () => {
+          parseYamlContent(dom.yamlTextarea.value);
+        });
+
+        dom.loadSampleBtn.addEventListener('click', () => {
+          dom.yamlTextarea.value = SAMPLE_YAML;
+          dom.uploadedFileMeta.classList.add('hidden');
+          parseYamlContent(SAMPLE_YAML, { type: 'sample' });
+        });
+
+        dom.testAllBtn.addEventListener('click', () => {
+          if (!state.endpoints.length) {
+            showToast(t('toastNothingToTest'), 'warning');
+            return;
+          }
+          runBatchTests(state.endpoints);
+        });
+
+        dom.testSelectedBtn.addEventListener('click', () => {
+          const selected = state.endpoints.filter((e) => e.selected);
+          if (!selected.length) {
+            showToast(t('toastNoneSelected'), 'warning');
+            return;
+          }
+          runBatchTests(selected);
+        });
+
+        dom.stopTestingBtn.addEventListener('click', () => stopBatchTesting(false));
+        dom.exportWorkingBtn.addEventListener('click', exportWorkingConfig);
+        dom.openCsvModalBtn.addEventListener('click', openCsvModal);
+        dom.exportJsonBtn.addEventListener('click', executeJsonExport);
+        dom.closeCsvModalBtn.addEventListener('click', closeCsvModal);
+        dom.cancelCsvModalBtn.addEventListener('click', closeCsvModal);
+        dom.confirmExportCsvBtn.addEventListener('click', executeCsvExport);
+        dom.csvModal.addEventListener('click', (e) => {
+          if (e.target === dom.csvModal) closeCsvModal();
+        });
+
+        // Global Keyboard Shortcuts
+        document.addEventListener('keydown', (e) => {
+          // Ctrl+Enter: Trigger testing (Test All or Test Selected)
+          if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            const selectedCount = state.endpoints.filter((ep) => ep.selected).length;
+            if (selectedCount > 0 && !dom.testSelectedBtn.disabled) {
+              dom.testSelectedBtn.click();
+            } else if (!dom.testAllBtn.disabled) {
+              dom.testAllBtn.click();
+            }
+            return;
+          }
+
+          // Ctrl+S: Export Working YAML
+          if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+            e.preventDefault();
+            if (!dom.exportWorkingBtn.disabled) {
+              exportWorkingConfig();
+            }
+            return;
+          }
+
+          // Ctrl+Shift+F: Focus Search Bar
+          if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+            e.preventDefault();
+            dom.searchInput.focus();
+            dom.searchInput.select();
+            return;
+          }
+
+          // Escape key handling
+          if (e.key === 'Escape') {
+            if (state.modalEndpointId) closeInspectorModal();
+            closeCsvModal();
+          }
+        });
+
+        dom.searchInput.addEventListener('input', (e) => {
+          state.filters.search = e.target.value || '';
+          renderTable();
+        });
+
+        dom.providerFilterSelect.addEventListener('change', (e) => {
+          state.filters.provider = e.target.value || 'all';
+          renderTable();
+        });
+
+        dom.statusFilterGroup.addEventListener('click', (e) => {
+          const btn = e.target.closest('.status-filter-btn');
+          if (!btn) return;
+          state.filters.status = btn.getAttribute('data-status-filter') || 'all';
+          renderStatusFilterPills();
+          renderTable();
+        });
+
+        dom.selectAllCheckbox.addEventListener('change', (e) => {
+          const checked = Boolean(e.target.checked);
+          const filtered = getFilteredEndpoints();
+          for (const ep of filtered) {
+            ep.selected = checked;
+          }
+          renderTable();
+          renderControls();
+        });
+
+        dom.endpointsTableBody.addEventListener('change', (e) => {
+          const cb = e.target.closest('.row-checkbox');
+          if (!cb) return;
+          const id = cb.getAttribute('data-row-check');
+          const ep = state.endpoints.find((item) => item.id === id);
+          if (ep) {
+            ep.selected = Boolean(cb.checked);
+            const filtered = getFilteredEndpoints();
+            const selectedVisible = filtered.filter((x) => x.selected).length;
+            dom.selectAllCheckbox.checked = selectedVisible > 0 && selectedVisible === filtered.length;
+            dom.selectAllCheckbox.indeterminate = selectedVisible > 0 && selectedVisible < filtered.length;
+            dom.selectedCountLabel.textContent = t('selectedCount', { n: state.endpoints.filter((x) => x.selected).length });
+            renderControls();
+          }
+        });
+
+        dom.endpointsTableBody.addEventListener('click', (e) => {
+          const runBtn = e.target.closest('[data-run-single]');
+          if (runBtn) {
+            const id = runBtn.getAttribute('data-run-single');
+            const ep = state.endpoints.find((item) => item.id === id);
+            if (ep) testEndpoint(ep);
+            return;
+          }
+
+          const inspectBtn = e.target.closest('[data-inspect]');
+          if (inspectBtn) {
+            const id = inspectBtn.getAttribute('data-inspect');
+            openInspectorModal(id);
+          }
+        });
+
+        dom.closeModalBtn.addEventListener('click', closeInspectorModal);
+        dom.modalCloseFooterBtn.addEventListener('click', closeInspectorModal);
+        dom.inspectorModal.addEventListener('click', (e) => {
+          if (e.target === dom.inspectorModal) closeInspectorModal();
+        });
+
+        dom.modalRetestBtn.addEventListener('click', () => {
+          if (!state.modalEndpointId) return;
+          const ep = state.endpoints.find((e) => e.id === state.modalEndpointId);
+          if (ep) testEndpoint(ep);
+        });
+
+        dom.copyKeyBtn.addEventListener('click', async () => {
+          if (!state.modalEndpointId) return;
+          const ep = state.endpoints.find((e) => e.id === state.modalEndpointId);
+          if (!ep || !ep.apiKey) return;
+          try {
+            await navigator.clipboard.writeText(ep.apiKey);
+            showToast(t('toastKeyCopied'), 'success');
+          } catch (_) {
+            showToast(t('toastCopyFailed'), 'error');
+          }
+        });
+
+        // PWA Installation handling
+        window.addEventListener('beforeinstallprompt', (e) => {
+          e.preventDefault();
+          state.deferredInstallPrompt = e;
+          dom.pwaInstallBtn.style.display = 'inline-flex';
+        });
+
+        dom.pwaInstallBtn.addEventListener('click', async () => {
+          if (!state.deferredInstallPrompt) return;
+          state.deferredInstallPrompt.prompt();
+          const { outcome } = await state.deferredInstallPrompt.userChoice;
+          if (outcome === 'accepted') {
+            dom.pwaInstallBtn.style.display = 'none';
+          }
+          state.deferredInstallPrompt = null;
+        });
+
+        // Register Service Worker if supported
+        if ('serviceWorker' in navigator) {
+          window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/sw.js').catch(() => {});
+          });
+        }
+
+        // Initial setup
+        applyTranslations();
+        refreshIcons();
+      })();
+    </script>
+  </body>
+</html>

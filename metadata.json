@@ -1,0 +1,6 @@
+{
+  "name": "LiteLLM Endpoint Inspector",
+  "description": "Interactive bilingual LiteLLM config YAML parser, concurrent endpoint connectivity tester, and working config exporter.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
